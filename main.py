@@ -8,19 +8,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect, Say, Stream
 from dotenv import load_dotenv
+from openai_constant import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_API_URL, SESSION_UPDATE_CONFIG, SYSTEM_MESSAGE
 
 load_dotenv()
 
 # Configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY') # requires OpenAI Realtime API Access
 PORT = int(os.getenv('PORT', 5050))
-SYSTEM_MESSAGE = (
-    "You are a helpful and bubbly AI assistant who loves to chat about "
-    "anything the user is interested in and is prepared to offer them facts. "
-    "You have a penchant for dad jokes, owl jokes, and rickrolling – subtly. "
-    "Always stay positive, but work in a joke when appropriate."
-)
-VOICE = 'alloy'
 LOG_EVENT_TYPES = [
     'response.content.done', 
     'rate_limits.updated',
@@ -50,7 +43,7 @@ async def handle_incoming_call(request: Request):
     # <Say> punctuation to improve text-to-speech flow
     response.say("Please wait while we connect your call to the A. I. voice assistant")
     response.pause(length=1)
-    response.say("O.K. you can start talking!")
+    response.say("你好 我是喬家大院的智能語音助理．我們有收到你對喬家大院的案子有興趣，請問我可以協助你預約來現場賞屋嗎？")
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
@@ -64,7 +57,7 @@ async def handle_media_stream(websocket: WebSocket):
     await websocket.accept()
 
     async with websockets.connect(
-        'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
+        f"{OPENAI_API_URL}?model={OPENAI_MODEL}",
         extra_headers={
             "Authorization": f"Bearer {OPENAI_API_KEY}",
             "OpenAI-Beta": "realtime=v1"
@@ -157,21 +150,8 @@ async def handle_media_stream(websocket: WebSocket):
 
 async def send_session_update(openai_ws):
     """Send session update to OpenAI WebSocket."""
-    session_update = {
-        "type": "session.update",
-        "session": {
-            "turn_detection": {"type": "server_vad"},
-            "input_audio_format": "g711_ulaw",
-            "output_audio_format": "g711_ulaw",
-            "voice": VOICE,
-            "instructions": SYSTEM_MESSAGE,
-            "modalities": ["text", "audio"],
-            "temperature": 0.6,
-            "input_audio_transcription": {"model": "whisper-1"}
-        }
-    }
-    print('Sending session update:', json.dumps(session_update))
-    await openai_ws.send(json.dumps(session_update))
+    print('Sending session update:', json.dumps(SESSION_UPDATE_CONFIG))
+    await openai_ws.send(json.dumps(SESSION_UPDATE_CONFIG))
 
 if __name__ == "__main__":
     import uvicorn
