@@ -22,9 +22,15 @@ SYSTEM_MESSAGE = (
 )
 VOICE = 'alloy'
 LOG_EVENT_TYPES = [
-    'response.content.done', 'rate_limits.updated', 'response.done',
-    'input_audio_buffer.committed', 'input_audio_buffer.speech_stopped',
-    'input_audio_buffer.speech_started', 'session.created'
+    'response.content.done', 
+    'rate_limits.updated',
+    'response.done',
+    'input_audio_buffer.committed',
+    'input_audio_buffer.speech_stopped',
+    'input_audio_buffer.speech_started',
+    'session.created',
+    'response.text.done',
+    'conversation.item.input_audio_transcription.completed'
 ]
 
 app = FastAPI()
@@ -42,7 +48,7 @@ async def handle_incoming_call(request: Request):
     """Handle incoming call and return TwiML response to connect to Media Stream."""
     response = VoiceResponse()
     # <Say> punctuation to improve text-to-speech flow
-    response.say("Please wait while we connect your call to the A. I. voice assistant, powered by Twilio and the Open-A.I. Realtime API")
+    response.say("Please wait while we connect your call to the A. I. voice assistant")
     response.pause(length=1)
     response.say("O.K. you can start talking!")
     host = request.url.hostname
@@ -82,8 +88,11 @@ async def handle_media_stream(websocket: WebSocket):
                     elif data['event'] == 'start':
                         stream_sid = data['start']['streamSid']
                         print(f"Incoming stream has started {stream_sid}")
+                    else:
+                        print('Received non-media event:', data['event'])
             except WebSocketDisconnect:
                 print("Client disconnected.")
+            finally:
                 if openai_ws.open:
                     await openai_ws.close()
 
@@ -93,27 +102,57 @@ async def handle_media_stream(websocket: WebSocket):
             try:
                 async for openai_message in openai_ws:
                     response = json.loads(openai_message)
+                    # First, check if the event type needs to be logged
                     if response['type'] in LOG_EVENT_TYPES:
                         print(f"Received event: {response['type']}", response)
-                    if response['type'] == 'session.updated':
-                        print("Session updated successfully:", response)
-                    if response['type'] == 'response.audio.delta' and response.get('delta'):
-                        # Audio from OpenAI
-                        try:
-                            audio_payload = base64.b64encode(base64.b64decode(response['delta'])).decode('utf-8')
-                            audio_delta = {
-                                "event": "media",
-                                "streamSid": stream_sid,
-                                "media": {
-                                    "payload": audio_payload
+
+                    # Then use match-case to handle specific types of responses
+                    match response['type']:
+                        case 'session.updated':
+                            print("Session updated successfully:", response)
+                        
+                        case 'response.audio.delta' if response.get('delta'):
+                            # Audio received from OpenAI
+                            try:
+                                # Encode the audio payload
+                                audio_payload = base64.b64encode(base64.b64decode(response['delta'])).decode('utf-8')
+                                # Prepare the audio delta message
+                                audio_delta = {
+                                    "event": "media",
+                                    "streamSid": stream_sid,
+                                    "media": {
+                                        "payload": audio_payload
+                                    }
                                 }
-                            }
-                            await websocket.send_json(audio_delta)
-                        except Exception as e:
-                            print(f"Error processing audio data: {e}")
+                                # Send the audio data back to Twilio
+                                await websocket.send_json(audio_delta)
+                            except Exception as e:
+                                print(f"Error processing audio data: {e}")
+                        
+                        case 'conversation.item.input_audio_transcription.completed':
+                            # User message transcription handling
+                            user_message = response['transcript'].strip()
+                            # session['transcript'] += f"User: {user_message}\n"
+                            print(f"User: {user_message}")
+                        
+                        case 'response.done':
+                            # Agent message handling
+                            agent_message = next((content['transcript'] for content in response['response']['output'][0].get('content', [])
+                                                  if 'transcript' in content), 'Agent message not found')
+                            # session['transcript'] += f"Agent: {agent_message}\n"
+                            print(f"Agent: {agent_message}")
+                        
+                        case _:
+                            print(f"Other Case from OpenAI Events: {response['type']}")
+                            print("Full response:", response)
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
 
+        # Concurrently run two asynchronous functions:
+        # 1. receive_from_twilio(): Listens for incoming audio data from Twilio
+        # 2. send_to_twilio(): Processes responses from OpenAI and sends audio back to Twilio
+        # The gather() function allows these two coroutines to run simultaneously,
+        # handling bidirectional audio streaming in real-time.
         await asyncio.gather(receive_from_twilio(), send_to_twilio())
 
 async def send_session_update(openai_ws):
@@ -127,7 +166,8 @@ async def send_session_update(openai_ws):
             "voice": VOICE,
             "instructions": SYSTEM_MESSAGE,
             "modalities": ["text", "audio"],
-            "temperature": 0.8,
+            "temperature": 0.6,
+            "input_audio_transcription": {"model": "whisper-1"}
         }
     }
     print('Sending session update:', json.dumps(session_update))
