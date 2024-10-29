@@ -58,14 +58,14 @@ async def make_outbound_call(request: Request):
         return JSONResponse(content={"message": f"Call initiated successfully. Call SID: {call_sid}"})
     else:
         return JSONResponse(content={"message": "Failed to initiate call."}, status_code=500)
-
+    
 @app.api_route("/twiml", methods=["GET", "POST"])
 async def serve_twiml(request: Request):
     """Serve TwiML for the outbound call."""
     response = VoiceResponse()
     response.say("Please wait while we connect your call to the A. I. voice assistant")
     response.pause(length=1)
-    response.say("你好 我是喬家大院的智能語音助理．我們有收到你對喬家大院的案子有興趣，請問我可以協助你預約來現場賞屋嗎？")
+    response.say("Hi Speaking Chinese？")
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
@@ -78,7 +78,7 @@ async def handle_incoming_call(request: Request):
     response = VoiceResponse()
     response.say("Please wait while we connect your call to the A. I. voice assistant")
     response.pause(length=1)
-    response.say("你好 我是喬家大院的智能語音助理．我們有收到你對喬家大院的案子有興趣，請問我可以協助你預約來現場賞屋嗎？")
+    response.say("Hi Speaking Chinese？")
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
@@ -132,7 +132,7 @@ async def handle_media_stream(websocket: WebSocket):
                     response = json.loads(openai_message)
                     # First, check if the event type needs to be logged
                     if response['type'] in LOG_EVENT_TYPES:
-                        print(f"Received event: {response['type']}", response)
+                        print(f"Received event: {response['type']}")
 
                     # Then use match-case to handle specific types of responses
                     match response['type']:
@@ -164,13 +164,18 @@ async def handle_media_stream(websocket: WebSocket):
                         
                         case 'response.done':
                             # Agent message handling
-                            agent_message = next((content['transcript'] for content in response['response']['output'][0].get('content', [])
-                                                  if 'transcript' in content), 'Agent message not found')
+                            output = response.get('response', {}).get('output', [])
+                            if output:
+                                agent_message = next((content.get('transcript') for content in output[0].get('content', [])
+                                                      if 'transcript' in content), 'Agent message not found')
+                            else:
+                                agent_message = 'Agent message not found'
+
                             print(f"Agent: {agent_message}")
                         
-                        case _:
-                            print(f"Other Case from OpenAI Events: {response['type']}")
-                            print("Full response:", response)
+                        #case _:
+                        #    print(f"Other Case from OpenAI Events: {response['type']}")
+                        #    print("Full response:", response)
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
 

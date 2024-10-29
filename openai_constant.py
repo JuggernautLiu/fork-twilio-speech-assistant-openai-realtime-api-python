@@ -54,7 +54,7 @@ SESSION_UPDATE_CONFIG = {
             "type": "server_vad",
             "threshold": 0.5,
             "prefix_padding_ms": 300,
-            "silence_duration_ms": 100
+            "silence_duration_ms": 300
         },
         "input_audio_format": "g711_ulaw",
         "output_audio_format": "g711_ulaw",
