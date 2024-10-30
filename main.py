@@ -8,8 +8,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect, Say, Stream
 from dotenv import load_dotenv
-from openai_constant import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_API_URL, SESSION_UPDATE_CONFIG, SYSTEM_MESSAGE
+from openai_constant import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_API_URL, SESSION_UPDATE_CONFIG, SYSTEM_MESSAGE,SYSTEM_INSTRUCTIONS
 from twilio_client import make_call, generate_twiml
+import requests
+from typing import Dict, Any
 
 load_dotenv()
 
@@ -90,6 +92,8 @@ async def handle_media_stream(websocket: WebSocket):
     """Handle WebSocket connections between Twilio and OpenAI."""
     print("Client connected")
     await websocket.accept()
+    # Initialize user transcript
+    all_transcript = ""
 
     async with websockets.connect(
         f"{OPENAI_API_URL}?model={OPENAI_MODEL}",
@@ -108,25 +112,42 @@ async def handle_media_stream(websocket: WebSocket):
                 async for message in websocket.iter_text():
                     data = json.loads(message)
                     if data['event'] == 'media' and openai_ws.open:
+                        # Handle media events by forwarding audio to OpenAI
                         audio_append = {
                             "type": "input_audio_buffer.append",
                             "audio": data['media']['payload']
                         }
                         await openai_ws.send(json.dumps(audio_append))
                     elif data['event'] == 'start':
+                        # Initialize stream when connection starts
                         stream_sid = data['start']['streamSid']
-                        print(f"Incoming stream has started {stream_sid}")
+                        print(f"[receive_from_twilio] Incoming stream has started {stream_sid}")
+                    elif data['event'] == 'mark':
+                        # Handle mark events which may indicate call termination
+                        print(f"Received mark event: {data.get('mark', {})}")
+                        if data.get('mark', {}).get('name') == 'hangup':
+                            print("[receive_from_twilio] Call ended by user")
+                            break  # Exit the loop when call ends
+                    elif data['event'] == 'stop':
+                        # Handle stream termination event
+                        print(f"[receive_from_twilio] Stream stopped: {data.get('stop', {})}")
+                        print(f"[receive_from_twilio] user_transcript: {all_transcript}")
+                        await on_connection_close(openai_ws, stream_sid, all_transcript)
+                        break  # Exit the loop when stream ends
                     else:
-                        print('Received non-media event:', data['event'])
+                        # Log any other non-media events for debugging
+                        print('[receive_from_twilio] Received non-media event:', data['event'])
             except WebSocketDisconnect:
-                print("Client disconnected.")
+                print("[receive_from_twilio] Client disconnected.")
             finally:
                 if openai_ws.open:
+                    print("[receive_from_twilio] Closing OpenAI connection: Call openai_ws.close()")
                     await openai_ws.close()
 
         async def send_to_twilio():
             """Receive events from the OpenAI Realtime API, send audio back to Twilio."""
             nonlocal stream_sid
+            nonlocal all_transcript
             try:
                 async for openai_message in openai_ws:
                     response = json.loads(openai_message)
@@ -159,7 +180,8 @@ async def handle_media_stream(websocket: WebSocket):
                         
                         case 'conversation.item.input_audio_transcription.completed':
                             # User message transcription handling
-                            user_message = response['transcript'].strip()
+                            user_message = "User: " + response['transcript'].strip()
+                            all_transcript += user_message + "\n"
                             print(f"User: {user_message}")
                         
                         case 'response.done':
@@ -168,14 +190,29 @@ async def handle_media_stream(websocket: WebSocket):
                             if output:
                                 agent_message = next((content.get('transcript') for content in output[0].get('content', [])
                                                       if 'transcript' in content), 'Agent message not found')
+                                all_transcript += "Agent: " + agent_message + "\n"
                             else:
                                 agent_message = 'Agent message not found'
 
                             print(f"Agent: {agent_message}")
-                        
+                        case 'session.closed':
+                            print("OpenAI session closed")
+                            await openai_ws.close()
+                            
+                        case 'error':
+                            print(f"Error from OpenAI: {response.get('error', 'Unknown error')}")
+                            await openai_ws.close()
+                            
+                        case 'connection.closed':
+                            print("OpenAI connection closed")
+                            await openai_ws.close()
+                            # 可以在這裡處理完整對話記錄
+                            print("Full conversation transcript:")
+                            # TODO: 實作對話記錄的處理邏輯
                         #case _:
                         #    print(f"Other Case from OpenAI Events: {response['type']}")
                         #    print("Full response:", response)
+
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
 
@@ -185,6 +222,129 @@ async def send_session_update(openai_ws):
     """Send session update to OpenAI WebSocket."""
     print('Sending session update:', json.dumps(SESSION_UPDATE_CONFIG))
     await openai_ws.send(json.dumps(SESSION_UPDATE_CONFIG))
+
+async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
+    """
+    Make a ChatGPT API call to extract customer details from conversation transcript
+    
+    Args:
+        transcript: The conversation transcript text
+    
+    Returns:
+        Dict: Contains extracted customer information
+    """
+    print('Starting ChatGPT API call...')
+    
+    try:
+        headers = {
+            'Authorization': f"Bearer {os.getenv('OPENAI_API_KEY')}",
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            "model": "gpt-4o-2024-08-06",  # Using latest available model
+            "messages": [
+                {
+                    "role": "system", 
+                    #"content": "Extract customer details: name, availability, and any special notes from the transcript."
+                    "content": SYSTEM_INSTRUCTIONS
+                },
+                {
+                    "role": "user",
+                    "content": transcript
+                }
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "customer_details_extraction",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "customerAvailabeTime": {"type": "string"},
+                            "customerCount": {"type": "string"},
+                            "specialNotes": {"type": "string"}
+                        },
+                        "required": ["customerAvailabeTime", "customerComingCount", "specialNotes"]
+                    }
+                }
+            }
+        }
+        
+        response = requests.post(
+            'https://api.openai.com/v1/chat/completions',
+            headers=headers,
+            json=payload
+        )
+        
+        print(f'ChatGPT API response status: {response.status_code}')
+        data = response.json()
+        print(f'Full ChatGPT API response: {json.dumps(data, indent=2)}')
+        
+        return data
+        
+    except Exception as error:
+        print(f'Error making ChatGPT completion call: {str(error)}')
+        raise error
+
+async def process_transcript_and_send(transcript: str, session_id: str = None) -> None:
+    """
+    Process the conversation transcript and send extracted details
+    
+    Args:
+        transcript: The full conversation transcript
+        session_id: Optional session identifier
+    """
+    print(f"Starting transcript processing for session {session_id}...")
+    
+    try:
+        # Make the ChatGPT completion call
+        result = await make_chat_gpt_completion(transcript)
+        print(f'Raw result from ChatGPT: {json.dumps(result, indent=2)}')
+        
+        if (result.get('choices') and 
+            result['choices'][0].get('message') and 
+            result['choices'][0]['message'].get('content')):
+            
+            try:
+                parsed_content = json.loads(result['choices'][0]['message']['content'])
+                print(f'Parsed content: {json.dumps(parsed_content, indent=2)}')
+                
+                if parsed_content:
+                    # Send the parsed content to webhook
+                    # await send_to_webhook(parsed_content)
+                    print(f'Extracted and sent customer details: {parsed_content}')
+                else:
+                    print('Unexpected JSON structure in ChatGPT response')
+                    
+            except json.JSONDecodeError as parse_error:
+                print(f'Error parsing JSON from ChatGPT response: {str(parse_error)}')
+                
+        else:
+            print('Unexpected response structure from ChatGPT API')
+            
+    except Exception as error:
+        print(f'Error in process_transcript_and_send: {str(error)}')
+
+# 在 WebSocket 連接關閉時調用
+async def on_connection_close(openai_ws, session_id: str, transcript: str ) -> None:
+    """
+    Handle WebSocket connection close
+    
+    Args:
+        websocket: The WebSocket connection
+        session_id: The session identifier
+    """
+    if openai_ws.open:
+        print("[on_connection_close] Closing OpenAI connection: Call openai_ws.close()")
+        await openai_ws.close()
+    print(f'Client disconnected ({session_id}).')
+    print('Full Transcript:')
+    print(transcript)
+    
+    await process_transcript_and_send(transcript, session_id)
+    
+    # Clean up the session
 
 if __name__ == "__main__":
     import uvicorn

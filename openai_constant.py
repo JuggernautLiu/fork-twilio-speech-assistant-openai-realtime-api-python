@@ -45,6 +45,7 @@ SYSTEM_MESSAGE = (
     "確認預約資料完畢後，結束通話．"
 )
 
+SYSTEM_INSTRUCTIONS = "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。確認對話者是否會有其他親友一同來訪，並記錄來訪人數。"
 # Other OpenAI related constants can be added here
 
 SESSION_UPDATE_CONFIG = {
@@ -62,5 +63,8 @@ SESSION_UPDATE_CONFIG = {
         "instructions": SYSTEM_MESSAGE,
         "modalities": ["text", "audio"],
         "temperature": 0.6,
+        "input_audio_transcription": {
+            "model": "whisper-1"
+        }
     }
 }
