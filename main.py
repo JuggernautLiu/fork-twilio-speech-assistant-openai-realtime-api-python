@@ -132,9 +132,9 @@ async def handle_media_stream(websocket: WebSocket):
                         print(f"[receive_from_twilio] user_transcript: {all_transcript}")
                         await on_connection_close(openai_ws, stream_sid, all_transcript)
                         break  # Exit the loop when stream ends
-                    #else:
+                    else:
                         # Log any other non-media events for debugging
-                        # print('[receive_from_twilio] Received non-media event:', data['event'])
+                        print('[receive_from_twilio] Received non-media event:', data['event'])
             except WebSocketDisconnect:
                 print("[receive_from_twilio] Client disconnected.")
             finally:
@@ -186,8 +186,8 @@ async def handle_media_stream(websocket: WebSocket):
                             hang_up_keywords = ['掛斷', '再見', '結束通話', '掰掰', '拜拜', '不用了', '不需要','Bye']
                             if any(keyword in user_message for keyword in hang_up_keywords):
                                 print("Detected user request to hang up")
-                                if call_sid:
-                                    await close_call_by_agent(call_sid)
+                                #if call_sid:
+                                #    await close_call_by_agent(call_sid)
                         
                         case OpenAIEventTypes.RESPONSE_DONE:
                             # Agent message handling
@@ -213,9 +213,9 @@ async def handle_media_stream(websocket: WebSocket):
                             await openai_ws.close()
                             # Process the complete conversation history here
                             # Optional: Save to database or send to other services
-                        #case _:
-                            #print(f"Other Case from OpenAI Events: {response['type']}")
-                            # print("Full response:", response)
+                        case _:
+                            print(f"Other Case from OpenAI Events: {response['type']}")
+                            print("Full response:", response)
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
 
@@ -348,6 +348,19 @@ async def on_connection_close(openai_ws, session_id: str, transcript: str ) -> N
     await process_transcript_and_send(transcript, session_id)
     
     # Clean up the session
+
+async def update_call_status(session_id: str, status: str) -> None:
+    """Update the status of a call in a session"""
+    print(f"Updating call status for session {session_id} to {status}")
+
+async def get_weather(location: str) -> None:
+    """
+    Simple weather function that just prints 'get_weather'
+    
+    Args:
+        location: The location to get weather for (unused in this implementation)
+    """
+    print("get_weather")
 
 if __name__ == "__main__":
     import uvicorn
