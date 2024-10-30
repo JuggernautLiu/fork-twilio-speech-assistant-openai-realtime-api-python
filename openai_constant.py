@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from enum import Enum
 
 # Load environment variables from .env file
 load_dotenv()
@@ -68,3 +69,32 @@ SESSION_UPDATE_CONFIG = {
         }
     }
 }
+
+class OpenAIEventTypes(str, Enum):
+    RESPONSE_CONTENT_DONE = 'response.content.done'
+    RATE_LIMITS_UPDATED = 'rate_limits.updated'
+    RESPONSE_DONE = 'response.done'
+    AUDIO_BUFFER_COMMITTED = 'input_audio_buffer.committed'
+    SPEECH_STOPPED = 'input_audio_buffer.speech_stopped'
+    SPEECH_STARTED = 'input_audio_buffer.speech_started'
+    SESSION_CREATED = 'session.created'
+    RESPONSE_TEXT_DONE = 'response.text.done'
+    TRANSCRIPTION_COMPLETED = 'conversation.item.input_audio_transcription.completed'
+    CONNECTION_CLOSED = 'connection.closed'
+    SESSION_UPDATED = 'session.updated'
+    RESPONSE_AUDIO_DELTA = 'response.audio.delta'
+    ERROR = 'error'
+
+    
+    @classmethod
+    def get_all_events(cls) -> list[str]:
+        """
+        Returns a list of all event type values.
+        
+        Returns:
+            list[str]: List of all OpenAI event type strings
+        """
+        return [event for event in cls]
+
+# Pre-defined list of all events for easy import
+ALL_EVENTS = OpenAIEventTypes.get_all_events()

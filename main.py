@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect, Say, Stream
 from dotenv import load_dotenv
-from openai_constant import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_API_URL, SESSION_UPDATE_CONFIG, SYSTEM_MESSAGE,SYSTEM_INSTRUCTIONS
+from openai_constant import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_API_URL, SESSION_UPDATE_CONFIG, SYSTEM_MESSAGE,SYSTEM_INSTRUCTIONS, OpenAIEventTypes, ALL_EVENTS
 from twilio_client import make_call, generate_twiml
 import requests
 from typing import Dict, Any
@@ -17,18 +17,7 @@ load_dotenv()
 
 # Configuration
 PORT = int(os.getenv('PORT', 5050))
-LOG_EVENT_TYPES = [
-    'response.content.done', 
-    'rate_limits.updated',
-    'response.done',
-    'input_audio_buffer.committed',
-    'input_audio_buffer.speech_stopped',
-    'input_audio_buffer.speech_started',
-    'session.created',
-    'response.text.done',
-    'conversation.item.input_audio_transcription.completed'
-]
-
+LOG_EVENT_TYPES = OpenAIEventTypes.get_all_events()
 app = FastAPI()
 
 if not OPENAI_API_KEY:
@@ -92,7 +81,11 @@ async def handle_media_stream(websocket: WebSocket):
     """Handle WebSocket connections between Twilio and OpenAI."""
     print("Client connected")
     await websocket.accept()
-    # Initialize user transcript
+    
+    # Initialize stream_sid
+    stream_sid = None
+    
+    # Initialize user transcriptions for this session
     all_transcript = ""
 
     async with websockets.connect(
@@ -106,7 +99,10 @@ async def handle_media_stream(websocket: WebSocket):
         stream_sid = None
 
         async def receive_from_twilio():
-            """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
+            """
+            Receive audio data from Twilio and forward it to OpenAI.
+            Handles stream initialization and termination.
+            """
             nonlocal stream_sid
             try:
                 async for message in websocket.iter_text():
@@ -140,6 +136,7 @@ async def handle_media_stream(websocket: WebSocket):
             except WebSocketDisconnect:
                 print("[receive_from_twilio] Client disconnected.")
             finally:
+                # Ensure OpenAI WebSocket is closed
                 if openai_ws.open:
                     print("[receive_from_twilio] Closing OpenAI connection: Call openai_ws.close()")
                     await openai_ws.close()
@@ -157,10 +154,10 @@ async def handle_media_stream(websocket: WebSocket):
 
                     # Then use match-case to handle specific types of responses
                     match response['type']:
-                        case 'session.updated':
+                        case OpenAIEventTypes.SESSION_UPDATED:
                             print("Session updated successfully:", response)
                         
-                        case 'response.audio.delta' if response.get('delta'):
+                        case OpenAIEventTypes.RESPONSE_AUDIO_DELTA if response.get('delta'):
                             # Audio received from OpenAI
                             try:
                                 # Encode the audio payload
@@ -178,13 +175,13 @@ async def handle_media_stream(websocket: WebSocket):
                             except Exception as e:
                                 print(f"Error processing audio data: {e}")
                         
-                        case 'conversation.item.input_audio_transcription.completed':
+                        case OpenAIEventTypes.TRANSCRIPTION_COMPLETED:
                             # User message transcription handling
                             user_message = "User: " + response['transcript'].strip()
                             all_transcript += user_message + "\n"
                             print(f"User: {user_message}")
                         
-                        case 'response.done':
+                        case OpenAIEventTypes.RESPONSE_DONE:
                             # Agent message handling
                             output = response.get('response', {}).get('output', [])
                             if output:
@@ -195,20 +192,19 @@ async def handle_media_stream(websocket: WebSocket):
                                 agent_message = 'Agent message not found'
 
                             print(f"Agent: {agent_message}")
-                        case 'session.closed':
+                        case OpenAIEventTypes.CONNECTION_CLOSED:
                             print("OpenAI session closed")
                             await openai_ws.close()
                             
-                        case 'error':
+                        case OpenAIEventTypes.ERROR:
                             print(f"Error from OpenAI: {response.get('error', 'Unknown error')}")
                             await openai_ws.close()
                             
-                        case 'connection.closed':
+                        case OpenAIEventTypes.CONNECTION_CLOSED:
                             print("OpenAI connection closed")
                             await openai_ws.close()
-                            # 可以在這裡處理完整對話記錄
-                            print("Full conversation transcript:")
-                            # TODO: 實作對話記錄的處理邏輯
+                            # Process the complete conversation history here
+                            # Optional: Save to database or send to other services
                         #case _:
                         #    print(f"Other Case from OpenAI Events: {response['type']}")
                         #    print("Full response:", response)
@@ -326,7 +322,7 @@ async def process_transcript_and_send(transcript: str, session_id: str = None) -
     except Exception as error:
         print(f'Error in process_transcript_and_send: {str(error)}')
 
-# 在 WebSocket 連接關閉時調用
+# When WebSocket connection is closed
 async def on_connection_close(openai_ws, session_id: str, transcript: str ) -> None:
     """
     Handle WebSocket connection close
