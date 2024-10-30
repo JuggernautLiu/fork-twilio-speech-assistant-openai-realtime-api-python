@@ -53,4 +53,19 @@ def generate_twiml(message="Hello, this is a test call from Twilio!", voice='ali
     response.say(message, voice=voice)
     return str(response)
 
+async def close_call_by_agent(session_id: str) -> None:
+    """
+    Close the call using Twilio API
+    
+    Args:
+        session_id: session ID (Call SID)
+    """
+    try:
+        call = client.calls(session_id).update(status='completed')
+        print(f"Closed call {session_id}")
+        return call.sid
+    except Exception as e:
+        print(f"Error in close_call_by_agent: {e}")
+        return None
+
 # Additional Twilio-related functions can be added here as needed
