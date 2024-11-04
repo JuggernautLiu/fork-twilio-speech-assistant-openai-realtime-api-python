@@ -19,6 +19,7 @@ load_dotenv()
 PORT = int(os.getenv('PORT', 5050))
 LOG_EVENT_TYPES = OpenAIEventTypes.get_all_events()
 app = FastAPI()
+call_sid = None
 
 if not OPENAI_API_KEY:
     raise ValueError('Missing the OpenAI API key. Please set it in the .env file.')
@@ -186,8 +187,8 @@ async def handle_media_stream(websocket: WebSocket):
                             hang_up_keywords = ['掛斷', '再見', '結束通話', '掰掰', '拜拜', '不用了', '不需要','Bye']
                             if any(keyword in user_message for keyword in hang_up_keywords):
                                 print("Detected user request to hang up")
-                                #if call_sid:
-                                #    await close_call_by_agent(call_sid)
+                                if call_sid:
+                                    await close_call_by_agent(call_sid)
                         
                         case OpenAIEventTypes.RESPONSE_DONE:
                             # Agent message handling
@@ -349,9 +350,13 @@ async def on_connection_close(openai_ws, session_id: str, transcript: str ) -> N
     
     # Clean up the session
 
-async def update_call_status(session_id: str, status: str) -> None:
+async def function_call_closethecall(status: str) -> None:
     """Update the status of a call in a session"""
-    print(f"Updating call status for session {session_id} to {status}")
+    print(f"Updating call status for call_sid {call_sid} to {status}")
+    print("Detected user request to hang up")
+
+    if call_sid:
+        await close_call_by_agent(call_sid)
 
 async def get_weather(location: str) -> None:
     """

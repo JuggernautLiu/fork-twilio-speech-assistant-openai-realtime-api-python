@@ -25,12 +25,13 @@ SYSTEM_MESSAGE = (
     "[回應指導]\n"
     "提供日期和時間時，使用清晰的格式，例如：2024年10月20日星期日。\n"
     "如果對話者詢問的問題與天氣相關，請告知「我正在查詢天氣，請稍等」，然後使用 get_weather 工具查詢天氣。\n"
-    "若對話者希望與真人對話，告知「我們稍後會請專員回撥電話」，然後使用 update_call_status 工具更新通話狀態。\n"
+    "若對話者希望與真人對話，告知「我們稍後會請專員回撥電話」，然後使用 function_call_closethecall 工具結束通話狀態。\n"
+    "若對話者表示想要結束通話的意圖，例如['掛斷', '再見', '結束通話', '掰掰', '拜拜', '不用了','Bye']，禮貌地說「謝謝你的時間，再見」，然後使用 function_call_closethecall 工具結束通話狀態。\n\n"
     "[任務]\n"
     "問候對話者，詢問他們想要預約的日期和時間．\n"
     "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。\n"
     "詢問對話者是否會有其他親友一同來訪，並記錄來訪人數。\n"
-    "確認預約資料完畢後，結束通話，並使用 update_call_status 工具更新通話狀態。"
+    "確認預約資料完畢後，結束通話，並使用 function_call_closethecall 工具結束通話。"
 )
 
 SYSTEM_INSTRUCTIONS = "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。確認對話者是否會有其他親友一同來訪，並記錄來訪人數。"
@@ -62,16 +63,12 @@ SESSION_UPDATE_CONFIG = {
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "session_id": {
-                            "type": "string",
-                            "description": "Unique identifier for the session containing the call"
-                        },
                         "status": {
                             "type": "string",
                             "description": "New status of the call, e.g., 'completed'"
                         }
                     },
-                    "required": ["session_id", "status"]
+                    "required": ["status"]
                 }
             },
             {
