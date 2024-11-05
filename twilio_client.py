@@ -2,9 +2,13 @@ from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import os
 from dotenv import load_dotenv
+from log_utils import setup_logger
 
 # Load environment variables
 load_dotenv()
+
+# Setup logger
+logger = setup_logger("[Twilio_Client]")
 
 # Get Twilio credentials
 account_sid = os.getenv('TWILIO_ACCOUNT_SID')
@@ -22,24 +26,22 @@ def make_call(to_number: str, twiml_url: str, from_number: str = None):
     :param from_number: The phone number to use for the call (optional)
     :return: Call SID if successful, None otherwise
     """
-     # Print all input parameters
-    print(f"Call Parameters:")
-    print(f"To Number: {to_number}")
-    print(f"TwiML URL: {twiml_url}")
-    # print(f"From Number: {from_number if from_number else twilio_phone_number}")
-    print(f"From Number: {twilio_phone_number}")
+    # Log all input parameters
+    logger.info("Call Parameters:")
+    logger.info(f"To Number: {to_number}")
+    logger.info(f"TwiML URL: {twiml_url}")
+    logger.info(f"From Number: {twilio_phone_number}")
 
     try:
-        
         call = client.calls.create(
             to=to_number,
             from_=from_number or twilio_phone_number, 
             url=twiml_url
         )
-        print(f"Call initiated. Call SID: {call.sid}")
+        logger.info(f"Call initiated. Call SID: {call.sid}")
         return call.sid
     except Exception as e:
-        print(f"Error making call: {e}")
+        logger.error(f"Error making call: {e}")
         return None
 
 def generate_twiml(message="Hello, this is a test call from Twilio!", voice='alice'):
@@ -62,10 +64,10 @@ async def close_call_by_agent(session_id: str) -> None:
     """
     try:
         call = client.calls(session_id).update(status='completed')
-        print(f"Closed call {session_id}")
+        logger.info(f"Closed call {session_id}")
         return call.sid
     except Exception as e:
-        print(f"Error in close_call_by_agent: {e}")
+        logger.error(f"Error in close_call_by_agent: {e}")
         return None
 
 # Additional Twilio-related functions can be added here as needed

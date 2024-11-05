@@ -24,8 +24,9 @@ SYSTEM_MESSAGE = (
     "結束通話時請簡短與禮貌的的表達就好，如「謝謝你的時間，再見」\n\n"
     "[回應指導]\n"
     "提供日期和時間時，使用清晰的格式，例如：2024年10月20日星期日。\n"
-    "如果對話者詢問的問題與天氣相關，請告知「我正在查詢天氣，請稍等」，然後使用 get_weather 工具查詢天氣。\n"
+    "如果對話者詢問的問題與天氣相關，請詢問目前對話者所在地，告知「我正在查詢天氣，請稍等」，然後將地區作為參數，使用 get_weather 工具查詢天氣。\n"
     "若對話者希望與真人對話，告知「我們稍後會請專員回撥電話」，然後使用 function_call_closethecall 工具結束通話狀態。\n"
+    "若對話者表示目前沒空，請詢問下一個方便播打的時間，然後將時間作為輸入參數，使用 function_call_closethecall 工具結束通話狀態。\n"
     "若對話者表示想要結束通話的意圖，例如['掛斷', '再見', '結束通話', '掰掰', '拜拜', '不用了','Bye']，禮貌地說「謝謝你的時間，再見」，然後使用 function_call_closethecall 工具結束通話狀態。\n\n"
     "[任務]\n"
     "問候對話者，詢問他們想要預約的日期和時間．\n"
@@ -58,17 +59,19 @@ SESSION_UPDATE_CONFIG = {
         "tools": [
             {
                 "type": "function",
-                "name": "update_call_status",
-                "description": "Updates the status of a call in a session",
+                "name": "function_call_closethecall",
+                "description": "When the user wants to close the call, use this function to close the call",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "status": {
+                        "next_call_time": {
                             "type": "string",
-                            "description": "New status of the call, e.g., 'completed'"
-                        }
+                            "description": "The next call time for the user, e.g., '2024-10-20 10:00',if the user doesn't provide a time, the time could be NA"
+                            }
                     },
-                    "required": ["status"]
+                    "required": [
+                        "next_call_time"
+                    ]
                 }
             },
             {
@@ -89,9 +92,11 @@ SESSION_UPDATE_CONFIG = {
 }
 
 class OpenAIEventTypes(str, Enum):
+    CONVERSATION_ITEM = "conversation.item"
+    RESPONSE_DONE = "response.done"
+    RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE = "response.function_call.arguments.done"
     RESPONSE_CONTENT_DONE = 'response.content.done'
     RATE_LIMITS_UPDATED = 'rate_limits.updated'
-    RESPONSE_DONE = 'response.done'
     AUDIO_BUFFER_COMMITTED = 'input_audio_buffer.committed'
     SPEECH_STOPPED = 'input_audio_buffer.speech_stopped'
     SPEECH_STARTED = 'input_audio_buffer.speech_started'
@@ -102,6 +107,10 @@ class OpenAIEventTypes(str, Enum):
     SESSION_UPDATED = 'session.updated'
     RESPONSE_AUDIO_DELTA = 'response.audio.delta'
     ERROR = 'error'
+    RESPONSE_CREATED = 'response.created'
+    CONVERSATION_ITEM_CREATED = 'conversation.item.created'
+    RESPONSE_FUNCTION_CALL_ARGUMENTS_DELTA = 'response.function_call_arguments.delta'
+
 
     
     @classmethod
