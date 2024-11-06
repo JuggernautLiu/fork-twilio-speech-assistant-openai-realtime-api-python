@@ -14,7 +14,6 @@ import requests
 from typing import Dict, Any
 import traceback
 from log_utils import setup_logger
-import logging
 
 
 load_dotenv()
@@ -131,7 +130,7 @@ async def handle_media_stream(websocket: WebSocket):
                         # Handle stream termination event
                         logger.info(f"[receive_from_twilio] Stream stopped: {data.get('stop', {})}")
                         logger.info(f"[receive_from_twilio] user_transcript: {all_transcript}")
-                        #await on_connection_close(openai_ws, stream_sid, all_transcript)
+                        await on_connection_close(openai_ws, stream_sid, all_transcript)
                         break  # Exit the loop when stream ends
                     #else:
                         # Log any other non-media events for debugging
@@ -146,8 +145,7 @@ async def handle_media_stream(websocket: WebSocket):
 
         async def send_to_twilio():
             """Receive events from the OpenAI Realtime API, send audio back to Twilio."""
-            nonlocal stream_sid
-            nonlocal all_transcript
+            nonlocal stream_sid, call_sid, all_transcript
             try:
                 async for openai_message in openai_ws:
                     response = json.loads(openai_message)
@@ -211,13 +209,10 @@ async def handle_media_stream(websocket: WebSocket):
                             
                         case OpenAIEventTypes.RESPONSE_CREATED:
                             logger.info("Response created")
-                            logger.info(response)
-                        case OpenAIEventTypes.CONVERSATION_ITEM_CREATED:
-                            logger.info("Conversation item created")
-                            logger.info(response)
+                            logger.info(response)                            
                         #case OpenAIEventTypes.RESPONSE_FUNCTION_CALL_ARGUMENTS_DELTA:
-                        #    print("Response function call arguments delta")
-                        #    print(response)
+                        #    logger.info("Response function call arguments delta")
+                        #    logger.info(response)
                         case OpenAIEventTypes.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
                             logger.info("Response function call arguments done")
                             logger.info(response)
@@ -227,6 +222,21 @@ async def handle_media_stream(websocket: WebSocket):
                             await openai_ws.close()
                             # Process the complete conversation history here
                             # Optional: Save to database or send to other services
+                        case OpenAIEventTypes.CONVERSATION_ITEM_CREATED:
+                            logger.info("Conversation item created")
+                            item = response.get('item', {})
+                            
+                            # check if the item is a function call
+                            if item.get('type') == 'function_call':
+                                function_name = item.get('name')
+                                logger.info(f"Function call detected: {function_name}")
+                                
+                                if function_name == 'function_call_closethecall':
+                                    logger.info(f"Executing close call function for call_sid: {call_sid}")
+                                    if call_sid:
+                                        await function_call_closethecall(call_sid, "completed")
+                                    else:
+                                        logger.error("No call_sid available for closing the call")
                         # case _:
                         #    print(f"Other Case from OpenAI Events: {response['type']}")
                         #    print("Full response:", response)
@@ -367,15 +377,21 @@ async def on_connection_close(openai_ws, session_id: str, transcript: str ) -> N
     
     # Clean up the session
 
-async def function_call_closethecall(status: str) -> None:
+async def function_call_closethecall(call_sid: str, status: str) -> None:
     """Update the status of a call in a session"""
+    if not call_sid:
+        logger.error("Cannot close call: call_sid is missing")
+        return {"status": "error", "message": "call_sid is missing"}
+
     logger.info(f"Updating call status for call_sid {call_sid} to {status}")
     logger.info("Detected user request to hang up")
 
-    if call_sid:
+    try:
         await close_call_by_agent(call_sid)
-
-    return {"status": "completed"}
+        return {"status": "completed"}
+    except Exception as e:
+        logger.error(f"Error closing call {call_sid}: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 async def get_weather(location: str) -> None:
     """

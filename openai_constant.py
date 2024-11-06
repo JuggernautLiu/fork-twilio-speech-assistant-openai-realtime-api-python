@@ -32,7 +32,12 @@ SYSTEM_MESSAGE = (
     "問候對話者，詢問他們想要預約的日期和時間．\n"
     "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。\n"
     "詢問對話者是否會有其他親友一同來訪，並記錄來訪人數。\n"
-    "確認預約資料完畢後，結束通話，並使用 function_call_closethecall 工具結束通話。"
+    "確認預約資料完畢後，結束通話，並使用 function_call_closethecall 工具結束通話。\n\n"
+    "[結束條件]\n"
+    "當以下條件之一滿足時，請結束通話並使用 function_call_closethecall 工具：\n"
+    "確認了預約日期、時間、來訪人數\n"
+    "對話者表示想要結束通話（例如說出'掛斷', '再見', '結束通話' 等）\n"
+    "對話者表示希望由真人回撥\n"
 )
 
 SYSTEM_INSTRUCTIONS = "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。確認對話者是否會有其他親友一同來訪，並記錄來訪人數。"
@@ -61,30 +66,7 @@ SESSION_UPDATE_CONFIG = {
                 "type": "function",
                 "name": "function_call_closethecall",
                 "description": "When the user wants to close the call, use this function to close the call",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "next_call_time": {
-                            "type": "string",
-                            "description": "The next call time for the user, e.g., '2024-10-20 10:00',if the user doesn't provide a time, the time could be NA"
-                            }
-                    },
-                    "required": [
-                        "next_call_time"
-                    ]
-                }
-            },
-            {
-                "type": "function",
-                "name": "get_weather",
-                "description": "Get the current weather for a location, tell the user you are fetching the weather.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": { "type": "string" }
-                    },
-                    "required": ["location"]
-                }
+                "parameters": {}
             }
         ],
         "tool_choice": "auto"
@@ -164,3 +146,24 @@ SYSTEM_MESSAGE = (
     "詢問對話者是否會有其他親友一同來訪，並記錄來訪人數。\n"
     "確認預約資料完畢後，結束通話．"
 )'''
+
+'''
+            Just keep this function sample.
+            {
+                "type": "function",
+                "name": "function_call_closethecall",
+                "description": "When the user wants to close the call, use this function to close the call",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "next_call_time": {
+                            "type": "string",
+                            "description": "The next call time for the user, e.g., '2024-10-20 10:00',if the user doesn't provide a time, the time could be NA"
+                            }
+                    },
+                    "required": [
+                        "next_call_time"
+                    ]
+                }
+            }
+'''
