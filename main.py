@@ -14,6 +14,7 @@ import requests
 from typing import Dict, Any
 import traceback
 from log_utils import setup_logger
+from datetime import datetime
 
 
 load_dotenv()
@@ -27,7 +28,6 @@ call_sid = None
 if not OPENAI_API_KEY:
     raise ValueError('Missing the OpenAI API key. Please set it in the .env file.')
 
-# 創建 logger
 logger = setup_logger("[Twilio_Assistant]")
 
 @app.get("/", response_class=HTMLResponse)
@@ -37,18 +37,43 @@ async def index_page():
 @app.api_route("/makecall", methods=["GET", "POST"])
 async def make_outbound_call(request: Request):
     """Initiate an outbound call when this endpoint is called."""
-    to_number = "+886910366640"
+    if request.method == "GET":
+        to_number = request.query_params.get("to_number")
+        project_id = request.query_params.get("project_id")
+    else:  # POST
+        body = await request.json()
+        to_number = body.get("to_number")
+        project_id = body.get("project_id")
+    
+    if not to_number:
+        return JSONResponse(
+            content={"message": "Missing required parameter: to_number"}, 
+            status_code=400
+        )
+    if not project_id:
+        return JSONResponse(
+            content={"message": "Missing required parameter: project_id"}, 
+            status_code=400
+        )
+    
     twiml_url = f"https://{request.url.hostname}/twiml"
     
     logger.info(f"To Number: {to_number}")
+    logger.info(f"Project ID: {project_id}")
     logger.info(f"TwiML: {twiml_url}")
     
-    call_sid = make_call(to_number, twiml_url)
+    call_sid = make_call(to_number, twiml_url,request.url.hostname)
     
     if call_sid:
-        return JSONResponse(content={"message": f"Call initiated successfully. Call SID: {call_sid}"})
+        return JSONResponse(content={
+            "message": f"Call initiated successfully. Call SID: {call_sid}",
+            "project_id": project_id
+        })
     else:
-        return JSONResponse(content={"message": "Failed to initiate call."}, status_code=500)
+        return JSONResponse(
+            content={"message": "Failed to initiate call."}, 
+            status_code=500
+        )
     
 @app.api_route("/twiml", methods=["GET", "POST"])
 async def serve_twiml(request: Request):
@@ -150,8 +175,8 @@ async def handle_media_stream(websocket: WebSocket):
                 async for openai_message in openai_ws:
                     response = json.loads(openai_message)
                     # First, check if the event type needs to be logged
-                    if response['type'] in LOG_EVENT_TYPES:
-                        logger.info(f"Received event: {response['type']}")
+                    #if response['type'] in LOG_EVENT_TYPES:
+                    #    logger.info(f"Received event: {response['type']}")
 
                     # Then use match-case to handle specific types of responses
                     match response['type']:
@@ -234,6 +259,7 @@ async def handle_media_stream(websocket: WebSocket):
                                 if function_name == 'function_call_closethecall':
                                     logger.info(f"Executing close call function for call_sid: {call_sid}")
                                     if call_sid:
+                                        await asyncio.sleep(1)
                                         await function_call_closethecall(call_sid, "completed")
                                     else:
                                         logger.error("No call_sid available for closing the call")
@@ -251,6 +277,8 @@ async def handle_media_stream(websocket: WebSocket):
 
 async def send_session_update(openai_ws):
     """Send session update to OpenAI WebSocket."""
+    # TODO:
+    # Add the custom prompt based on the project_id
     logger.info('Sending session update: %s', json.dumps(SESSION_UPDATE_CONFIG))
     await openai_ws.send(json.dumps(SESSION_UPDATE_CONFIG))
 
@@ -292,8 +320,8 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "booked": {
-                                "type": "boolean"
+                            "result": {
+                                "type": "string"
                             },
                             "callnexttime": {
                                 "type": "string"
@@ -309,7 +337,7 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
                             }
                         },
                         "required": [
-                            "booked",
+                            "result",
                             "callnexttime",
                             "bookedTime",
                             "customerCount",
@@ -411,15 +439,43 @@ async def function_call_closethecall(call_sid: str, status: str) -> None:
         logger.error(f"Error closing call {call_sid}: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-async def get_weather(location: str) -> None:
-    """
-    Simple weather function that just prints 'get_weather'
+@app.post("/call-status")
+async def handle_call_status(request: Request):
+    """Handle Twilio call status callback"""
+    form_data = await request.form()
     
-    Args:
-        location: The location to get weather for (unused in this implementation)
-    """
-    logger.info("get_weather")
-    return {"weather": "Sunny"}
+    call_sid = form_data.get("CallSid")
+    call_status = form_data.get("CallStatus")
+    
+    logger.info(f"Call Status Update - SID: {call_sid}, Status: {call_status}")
+    
+    if call_status == "initiated":
+        logger.info(f"Call {call_sid} has been initiated")
+    elif call_status == "ringing":
+        logger.info(f"Call {call_sid} is ringing")
+    elif call_status == "answered":
+        logger.info(f"Call {call_sid} was answered")
+    elif call_status == "completed":
+        logger.info(f"Call {call_sid} has completed")
+        logger.info(f'CallDuration: {form_data.get("CallDuration")}')
+        # TODO: 
+        # call the webhook to update the call information
+    elif call_status in ["no-answer", "canceled", "busy"]:
+        retry_info = {
+            "call_sid": call_sid,
+            "result": "in-progress-noPickup",
+            "status": call_status,
+            "timestamp": datetime.now().isoformat(),
+            "to_number": form_data.get("To"),
+            "from_number": form_data.get("From"),
+            "retry_count": 1
+        }
+        
+        logger.info(f"Retry info: {retry_info}")
+        # TODO: 
+        # Call the Webhook to update the call status
+        
+    return JSONResponse(content={"status": "success"})
 
 if __name__ == "__main__":
     import uvicorn

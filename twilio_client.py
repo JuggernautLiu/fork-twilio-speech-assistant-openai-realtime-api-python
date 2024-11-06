@@ -18,11 +18,12 @@ twilio_phone_number = os.getenv('TWILIO_PHONE_NUMBER')
 # Create Twilio client
 client = Client(account_sid, auth_token)
 
-def make_call(to_number: str, twiml_url: str, from_number: str = None):
+def make_call(to_number: str, twiml_url: str, hostname: str, from_number: str = None):
     """
     Initiate a call using Twilio API
     :param to_number: The phone number to call
     :param twiml_url: URL for TwiML instructions
+    :param hostname: The hostname for callback URL
     :param from_number: The phone number to use for the call (optional)
     :return: Call SID if successful, None otherwise
     """
@@ -31,12 +32,17 @@ def make_call(to_number: str, twiml_url: str, from_number: str = None):
     logger.info(f"To Number: {to_number}")
     logger.info(f"TwiML URL: {twiml_url}")
     logger.info(f"From Number: {twilio_phone_number}")
+    logger.info(f"Host Name: {hostname}")
 
     try:
         call = client.calls.create(
             to=to_number,
             from_=from_number or twilio_phone_number, 
-            url=twiml_url
+            url=twiml_url,
+            status_callback=f"https://{hostname}/call-status",  # 使用传入的 hostname
+            status_callback_event=["initiated", "ringing", "answered", "completed"],
+            status_callback_method="POST",
+            timeout=5
         )
         logger.info(f"Call initiated. Call SID: {call.sid}")
         return call.sid
