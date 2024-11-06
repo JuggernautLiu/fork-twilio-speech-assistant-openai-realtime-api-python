@@ -40,7 +40,7 @@ SYSTEM_MESSAGE = (
     "對話者表示希望由真人回撥\n"
 )
 
-SYSTEM_INSTRUCTIONS = "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。確認對話者是否會有其他親友一同來訪，並記錄來訪人數。"
+SYSTEM_INSTRUCTIONS = "與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤。確認對話者是否會有其他親友一同來訪，並記錄來訪人數。如果對話者目前沒有空，也有提供下次通話時間，請記錄下來"
 # Other OpenAI related constants can be added here
 
 SESSION_UPDATE_CONFIG = {
@@ -109,6 +109,7 @@ class OpenAIEventTypes(str, Enum):
 ALL_EVENTS = OpenAIEventTypes.get_all_events()
 
 '''
+Backup
 SYSTEM_MESSAGE = (
     "[身份]\n"
     "您是一個線上預約系統的語音助手，是朝居科技房地產預約系統的一部分，專門協助客戶將線上潛在客戶轉換為現場看房預約。\n\n"

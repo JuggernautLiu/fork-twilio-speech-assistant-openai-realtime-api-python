@@ -292,11 +292,29 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "customerAvailabeTime": {"type": "string"},
-                            "customerCount": {"type": "string"},
-                            "specialNotes": {"type": "string"}
+                            "booked": {
+                                "type": "boolean"
+                            },
+                            "callnexttime": {
+                                "type": "string"
+                            },
+                            "bookedTime": {
+                                "type": "string"
+                            },
+                            "customerCount": {
+                                "type": "string"
+                            },
+                            "specialNotes": {
+                                "type": "string"
+                            }
                         },
-                        "required": ["customerAvailabeTime", "customerComingCount", "specialNotes"]
+                        "required": [
+                            "booked",
+                            "callnexttime",
+                            "bookedTime",
+                            "customerCount",
+                            "specialNotes"
+                        ]
                     }
                 }
             }
