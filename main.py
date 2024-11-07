@@ -30,6 +30,9 @@ if not OPENAI_API_KEY:
 
 logger = setup_logger("[Twilio_Assistant]")
 
+# Global dictionary to store call information
+call_records = {}
+
 @app.get("/", response_class=HTMLResponse)
 async def index_page():
     return {"message": "Twilio Media Stream Server is running!"}
@@ -37,44 +40,65 @@ async def index_page():
 @app.api_route("/makecall", methods=["GET", "POST"])
 async def make_outbound_call(request: Request):
     """Initiate an outbound call when this endpoint is called."""
-    if request.method == "GET":
-        to_number = request.query_params.get("to_number")
-        project_id = request.query_params.get("project_id")
-    else:  # POST
-        body = await request.json()
-        to_number = body.get("to_number")
-        project_id = body.get("project_id")
-    
-    if not to_number:
+    try:
+        if request.method == "GET":
+            to_number = request.query_params.get("to_number")
+            project_id = request.query_params.get("project_id")
+        else:  # POST
+            body = await request.json()
+            to_number = body.get("to_number")
+            project_id = body.get("project_id")
+        
+        if not to_number:
+            return JSONResponse(
+                content={"message": "Missing required parameter: to_number"}, 
+                status_code=400
+            )
+        if not project_id:
+            return JSONResponse(
+                content={"message": "Missing required parameter: project_id"}, 
+                status_code=400
+            )
+        
+        hostname = request.url.hostname
+        twiml_url = f"https://{hostname}/twiml"
+        
+        logger.info(f"To Number: {to_number}")
+        logger.info(f"Project ID: {project_id}")
+        logger.info(f"TwiML: {twiml_url}")
+        
+        call_sid = make_call(to_number, twiml_url, hostname)
+        
+        if call_sid:
+            # Initialize call record
+            call_records[call_sid] = {
+                "to_number": to_number,
+                "project_id": project_id,
+                "transcript": [],  # Store transcription content
+                "parsed_content": {},  # Store parsed results
+                "created_at": datetime.now().isoformat()
+            }
+            
+            logger.info(f"Call record created for SID: {call_sid}")
+            logger.info(f"Current records: {call_records}")
+            
+            return JSONResponse(content={
+                "message": f"Call initiated successfully. Call SID: {call_sid}",
+                "project_id": project_id
+            })
+        else:
+            return JSONResponse(
+                content={"message": "Failed to initiate call."}, 
+                status_code=500
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in make_outbound_call: {str(e)}")
         return JSONResponse(
-            content={"message": "Missing required parameter: to_number"}, 
-            status_code=400
-        )
-    if not project_id:
-        return JSONResponse(
-            content={"message": "Missing required parameter: project_id"}, 
-            status_code=400
-        )
-    
-    twiml_url = f"https://{request.url.hostname}/twiml"
-    
-    logger.info(f"To Number: {to_number}")
-    logger.info(f"Project ID: {project_id}")
-    logger.info(f"TwiML: {twiml_url}")
-    
-    call_sid = make_call(to_number, twiml_url,request.url.hostname)
-    
-    if call_sid:
-        return JSONResponse(content={
-            "message": f"Call initiated successfully. Call SID: {call_sid}",
-            "project_id": project_id
-        })
-    else:
-        return JSONResponse(
-            content={"message": "Failed to initiate call."}, 
+            content={"message": f"Error processing request: {str(e)}"}, 
             status_code=500
         )
-    
+
 @app.api_route("/twiml", methods=["GET", "POST"])
 async def serve_twiml(request: Request):
     """Serve TwiML for the outbound call."""
@@ -154,8 +178,8 @@ async def handle_media_stream(websocket: WebSocket):
                     elif data['event'] == 'stop':
                         # Handle stream termination event
                         logger.info(f"[receive_from_twilio] Stream stopped: {data.get('stop', {})}")
-                        logger.info(f"[receive_from_twilio] user_transcript: {all_transcript}")
-                        await on_connection_close(openai_ws, stream_sid, all_transcript)
+                        #logger.info(f"[receive_from_twilio] user_transcript: {all_transcript}")
+                        await on_connection_close(openai_ws, stream_sid, all_transcript, call_sid)
                         break  # Exit the loop when stream ends
                     #else:
                         # Log any other non-media events for debugging
@@ -259,7 +283,7 @@ async def handle_media_stream(websocket: WebSocket):
                                 if function_name == 'function_call_closethecall':
                                     logger.info(f"Executing close call function for call_sid: {call_sid}")
                                     if call_sid:
-                                        await asyncio.sleep(1)
+                                        await asyncio.sleep(2)
                                         await function_call_closethecall(call_sid, "completed")
                                     else:
                                         logger.error("No call_sid available for closing the call")
@@ -356,15 +380,13 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
         
         logger.info(f'ChatGPT API response status: {response.status_code}')
         data = response.json()
-        logger.info(f'Full ChatGPT API response: {json.dumps(data, indent=2)}')
-        
         return data
         
     except Exception as error:
         logger.error(f'Error making ChatGPT completion call: {str(error)}')
         raise error
 
-async def process_transcript_and_send(transcript: str, session_id: str = None) -> None:
+async def process_transcript_and_send(call_sid: str, transcript: str) -> None:
     """
     Process the conversation transcript and send extracted details
     
@@ -372,20 +394,20 @@ async def process_transcript_and_send(transcript: str, session_id: str = None) -
         transcript: The full conversation transcript
         session_id: Optional session identifier
     """
-    logger.info(f"Starting transcript processing for session {session_id}...")
+    #logger.info(f"Starting transcript processing for session {session_id}...")
     
     try:
         # Make the ChatGPT completion call
         result = await make_chat_gpt_completion(transcript)
         logger.info(f'Raw result from ChatGPT: {json.dumps(result, indent=2)}')
-        
+   
         if (result.get('choices') and 
             result['choices'][0].get('message') and 
             result['choices'][0]['message'].get('content')):
             
             try:
                 parsed_content = json.loads(result['choices'][0]['message']['content'])
-                logger.info(f'Parsed content: {json.dumps(parsed_content, indent=2)}')
+                #logger.info(f'Parsed content: {json.dumps(parsed_content, indent=2)}')
                 
                 if parsed_content:
                     # Send the parsed content to webhook
@@ -399,27 +421,37 @@ async def process_transcript_and_send(transcript: str, session_id: str = None) -
                 
         else:
             logger.warning('Unexpected response structure from ChatGPT API')
+
+        logger.info(f'Before update call_records: {call_sid}')
+        if call_sid in call_records:
+            # Add transcription content
+            call_records[call_sid]["transcript"].append(transcript) 
+            call_records[call_sid]["parsed_content"].update(parsed_content)
+            logger.info(f'Call record for {call_sid}: {json.dumps(call_records[call_sid],ensure_ascii=False, indent=2)}')
             
+            # Clean up record
+            del call_records[call_sid]
+            logger.info(f"Cleaned up record for call {call_sid}")
+        logger.info(f'After update call_records: {call_sid}')
     except Exception as error:
         logger.error(f'Error in process_transcript_and_send: {str(error)}')
 
 # When WebSocket connection is closed
-async def on_connection_close(openai_ws, session_id: str, transcript: str ) -> None:
-    """
-    Handle WebSocket connection close
-    
-    Args:
-        websocket: The WebSocket connection
-        session_id: The session identifier
-    """
-    if openai_ws.open:
-        logger.info("[on_connection_close] Closing OpenAI connection: Call openai_ws.close()")
-        await openai_ws.close()
-    logger.info(f'Client disconnected ({session_id}).')
-    logger.info('Full Transcript:')
-    logger.info(transcript)
-    
-    await process_transcript_and_send(transcript, session_id)
+async def on_connection_close(openai_ws, stream_sid: str, all_transcript: str, call_sid: str):
+    """Handle WebSocket connection close"""
+    try:
+        # Close OpenAI WebSocket
+        if openai_ws and not openai_ws.closed:
+            await openai_ws.close()
+            logger.info(f"OpenAI WebSocket closed for stream {stream_sid}")
+
+        # Process final transcript
+        if all_transcript:
+            logger.info(f"Processing final transcript for call {call_sid}:\n {all_transcript}")
+            await process_transcript_and_send(call_sid,all_transcript)
+            
+    except Exception as e:
+        logger.error(f"Error in on_connection_close: {str(e)}")
     
     # Clean up the session
 
@@ -458,8 +490,6 @@ async def handle_call_status(request: Request):
     elif call_status == "completed":
         logger.info(f"Call {call_sid} has completed")
         logger.info(f'CallDuration: {form_data.get("CallDuration")}')
-        # TODO: 
-        # call the webhook to update the call information
     elif call_status in ["no-answer", "canceled", "busy"]:
         retry_info = {
             "call_sid": call_sid,

@@ -39,10 +39,10 @@ def make_call(to_number: str, twiml_url: str, hostname: str, from_number: str = 
             to=to_number,
             from_=from_number or twilio_phone_number, 
             url=twiml_url,
-            status_callback=f"https://{hostname}/call-status",  # 使用传入的 hostname
+            status_callback=f"https://{hostname}/call-status",
             status_callback_event=["initiated", "ringing", "answered", "completed"],
             status_callback_method="POST",
-            timeout=5
+            timeout=10 # 10 seconds + around 5 seconds buffer
         )
         logger.info(f"Call initiated. Call SID: {call.sid}")
         return call.sid
