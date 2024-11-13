@@ -15,6 +15,7 @@ from typing import Dict, Any
 import traceback
 from log_utils import setup_logger
 from datetime import datetime
+import httpx
 
 
 load_dotenv()
@@ -428,7 +429,9 @@ async def process_transcript_and_send(call_sid: str, transcript: str) -> None:
             call_records[call_sid]["transcript"].append(transcript) 
             call_records[call_sid]["parsed_content"].update(parsed_content)
             logger.info(f'Call record for {call_sid}: {json.dumps(call_records[call_sid],ensure_ascii=False, indent=2)}')
-            
+            logger.info(f'before call_webhook_for_call_result')
+            await call_webhook_for_call_result(call_sid, parsed_content, transcript)
+            logger.info(f'after call_webhook_for_call_result')
             # Clean up record
             del call_records[call_sid]
             logger.info(f"Cleaned up record for call {call_sid}")
@@ -480,7 +483,7 @@ async def handle_call_status(request: Request):
     call_status = form_data.get("CallStatus")
     
     logger.info(f"Call Status Update - SID: {call_sid}, Status: {call_status}")
-    
+    bool_should_call_webhook = False
     if call_status == "initiated":
         logger.info(f"Call {call_sid} has been initiated")
     elif call_status == "ringing":
@@ -490,7 +493,8 @@ async def handle_call_status(request: Request):
     elif call_status == "completed":
         logger.info(f"Call {call_sid} has completed")
         logger.info(f'CallDuration: {form_data.get("CallDuration")}')
-    elif call_status in ["no-answer", "canceled", "busy"]:
+        bool_should_call_webhook = True
+    elif call_status in ["no-answer", "canceled", "busy", "failed"]:
         retry_info = {
             "call_sid": call_sid,
             "result": "in-progress-noPickup",
@@ -500,12 +504,51 @@ async def handle_call_status(request: Request):
             "from_number": form_data.get("From"),
             "retry_count": 1
         }
-        
+        bool_should_call_webhook = True
         logger.info(f"Retry info: {retry_info}")
         # TODO: 
         # Call the Webhook to update the call status
-        
+    
+    if bool_should_call_webhook:
+        try:
+            url = "http://localhost:5051/webhook/call-status"
+            timestamp = datetime.now().isoformat()
+            payload = {
+                "call_id": call_sid,
+                "status": call_status, 
+                "timestamp": timestamp
+            }
+            logger.info(f"Calling webhook with payload: {payload}")
+            logger.info(f"async with httpx.AsyncClient() as client:")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=payload)
+                logger.info(f"Webhook response: {response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"Webhook error: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error calling webhook: {str(e)}")
+            
     return JSONResponse(content={"status": "success"})
+
+async def call_webhook_for_call_result(call_sid: str, result: str, transcript: str):
+    try:
+            url = "http://localhost:5051/webhook/call-result"
+            payload = {
+                "call_id": call_sid,
+                "result": result, 
+                "transcript": transcript
+            }
+            logger.info(f"Calling webhook with payload: {payload}")
+            logger.info(f"async with httpx.AsyncClient() as client:")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=payload)
+                logger.info(f"Webhook response: {response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"Webhook error: {response.text}")
+                
+    except Exception as e:
+        logger.error(f"Error calling webhook: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
