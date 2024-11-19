@@ -84,8 +84,7 @@ async def make_outbound_call(request: Request):
             return JSONResponse(content={
                 #"message": f"Call initiated successfully. Call SID: {call_sid}",
                 "message": f"Call initiated successfully.",
-                "call_sid": call_sid,
-                "project_id": project_id
+                "call_sid": call_sid
             })
         else:
             return JSONResponse(
