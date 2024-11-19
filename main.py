@@ -80,11 +80,11 @@ async def make_outbound_call(request: Request):
                 "created_at": datetime.now().isoformat()
             }
             
-            logger.info(f"Call record created for SID: {call_sid}")
             logger.info(f"Current records: {call_records}")
-            
             return JSONResponse(content={
-                "message": f"Call initiated successfully. Call SID: {call_sid}",
+                #"message": f"Call initiated successfully. Call SID: {call_sid}",
+                "message": f"Call initiated successfully.",
+                "call_sid": call_sid,
                 "project_id": project_id
             })
         else:
@@ -511,6 +511,8 @@ async def handle_call_status(request: Request):
     
     if bool_should_call_webhook:
         try:
+            # TODO:
+            # Change the webhook url to the new one
             url = "http://localhost:5051/webhook/call-status"
             timestamp = datetime.now().isoformat()
             payload = {
@@ -533,19 +535,21 @@ async def handle_call_status(request: Request):
 
 async def call_webhook_for_call_result(call_sid: str, result: str, transcript: str):
     try:
-            url = "http://localhost:5051/webhook/call-result"
-            payload = {
-                "call_id": call_sid,
-                "result": result, 
-                "transcript": transcript
-            }
-            logger.info(f"Calling webhook with payload: {payload}")
-            logger.info(f"async with httpx.AsyncClient() as client:")
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload)
-                logger.info(f"Webhook response: {response.status_code}")
-                if response.status_code != 200:
-                    logger.error(f"Webhook error: {response.text}")
+        # TODO: 
+        # Change the webhook url to the new one
+        url = "http://localhost:5051/webhook/call-result"
+        payload = {
+            "call_id": call_sid,
+            "result": result, 
+            "transcript": transcript
+        }
+        logger.info(f"Calling webhook with payload: {payload}")
+        logger.info(f"async with httpx.AsyncClient() as client:")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload)
+            logger.info(f"Webhook response: {response.status_code}")
+            if response.status_code != 200:
+                logger.error(f"Webhook error: {response.text}")
                 
     except Exception as e:
         logger.error(f"Error calling webhook: {str(e)}")
