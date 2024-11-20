@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from openai_constant import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_API_URL, SESSION_UPDATE_CONFIG, SYSTEM_INSTRUCTIONS, OpenAIEventTypes
+from openai_constant import OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SESSION_UPDATE_CONFIG, SYSTEM_INSTRUCTIONS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests
 from typing import Dict, Any
@@ -139,7 +139,7 @@ async def handle_media_stream(websocket: WebSocket):
     all_transcript = ""
 
     async with websockets.connect(
-        f"{OPENAI_API_URL}?model={OPENAI_MODEL}",
+        f"{OPENAI_API_URL_REALTIME}?model={OPENAI_MODEL_REALTIME}",
         extra_headers={
             "Authorization": f"Bearer {OPENAI_API_KEY}",
             "OpenAI-Beta": "realtime=v1"
@@ -325,11 +325,10 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
         }
         
         payload = {
-            "model": "gpt-4o-2024-08-06",  # Using latest available model
+            "model": OPENAI_MODEL,  # Using latest available model
             "messages": [
                 {
                     "role": "system", 
-                    #"content": "Extract customer details: name, availability, and any special notes from the transcript."
                     "content": SYSTEM_INSTRUCTIONS
                 },
                 {
@@ -337,43 +336,11 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
                     "content": transcript
                 }
             ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "customer_details_extraction",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "result": {
-                                "type": "string"
-                            },
-                            "callnexttime": {
-                                "type": "string"
-                            },
-                            "bookedTime": {
-                                "type": "string"
-                            },
-                            "customerCount": {
-                                "type": "string"
-                            },
-                            "specialNotes": {
-                                "type": "string"
-                            }
-                        },
-                        "required": [
-                            "result",
-                            "callnexttime",
-                            "bookedTime",
-                            "customerCount",
-                            "specialNotes"
-                        ]
-                    }
-                }
-            }
+            **RESPONSE_FORMAT  # Unpack the schema into the message dictionary
         }
         
         response = requests.post(
-            'https://api.openai.com/v1/chat/completions',
+            OPENAI_API_URL,
             headers=headers,
             json=payload
         )
