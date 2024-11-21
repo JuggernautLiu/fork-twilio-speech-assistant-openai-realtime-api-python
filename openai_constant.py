@@ -9,7 +9,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL_REALTIME = "gpt-4o-realtime-preview-2024-10-01"
 OPENAI_API_URL_REALTIME = "wss://api.openai.com/v1/realtime"
-OPENAI_MODEL = "gpt-4o-2024-08-06"
+OPENAI_MODEL = "gpt-4o-2024-11-20"
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # System message for the AI assistant
