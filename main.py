@@ -34,6 +34,22 @@ logger = setup_logger("[Twilio_Assistant]")
 # Global dictionary to store call information
 call_records = {}
 
+# 獲取 webhook URL
+BASE_WEBHOOK_URL = os.getenv('BASE_WEBHOOK_URL', 'http://localhost')
+BASE_WEBHOOK_PORT = os.getenv('BASE_WEBHOOK_PORT', '5051')
+WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-result"
+WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-status"
+
+# 驗證設定
+if not all([BASE_WEBHOOK_URL, BASE_WEBHOOK_PORT]):
+    raise ValueError("Missing required webhook configuration")
+
+# 記錄設定
+logger.info(f"Base webhook URL: {BASE_WEBHOOK_URL}")
+logger.info(f"Base webhook port: {BASE_WEBHOOK_PORT}")
+logger.info(f"Call result webhook URL: {WEBHOOK_URL_CALL_RESULT}")
+logger.info(f"Call status webhook URL: {WEBHOOK_URL_CALL_STATUS}")
+
 @app.get("/", response_class=HTMLResponse)
 async def index_page():
     return {"message": "Twilio Media Stream Server is running!"}
@@ -477,19 +493,17 @@ async def handle_call_status(request: Request):
     
     if bool_should_call_webhook:
         try:
-            # TODO:
-            # Change the webhook url to the new one
-            url = "http://localhost:5051/webhook/call-status"
             timestamp = datetime.now().isoformat()
             payload = {
                 "call_id": call_sid,
                 "status": call_status, 
                 "timestamp": timestamp
             }
+            logger.info(f"WEBHOOK_URL_CALL_STATUS: {WEBHOOK_URL_CALL_STATUS}")
             logger.info(f"Calling webhook with payload: {payload}")
             logger.info(f"async with httpx.AsyncClient() as client:")
             async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(WEBHOOK_URL_CALL_STATUS, json=payload)
                 logger.info(f"Webhook response: {response.status_code}")
                 if response.status_code != 200:
                     logger.error(f"Webhook error: {response.text}")
@@ -501,18 +515,16 @@ async def handle_call_status(request: Request):
 
 async def call_webhook_for_call_result(call_sid: str, result: str, transcript: str):
     try:
-        # TODO: 
-        # Change the webhook url to the new one
-        url = "http://localhost:5051/webhook/call-result"
         payload = {
             "call_id": call_sid,
             "result": result, 
             "transcript": transcript
         }
+        logger.info(f"WEBHOOK_URL_CALL_RESULT: {WEBHOOK_URL_CALL_RESULT}")
         logger.info(f"Calling webhook with payload: {payload}")
         logger.info(f"async with httpx.AsyncClient() as client:")
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
+            response = await client.post(WEBHOOK_URL_CALL_RESULT, json=payload)
             logger.info(f"Webhook response: {response.status_code}")
             if response.status_code != 200:
                 logger.error(f"Webhook error: {response.text}")
