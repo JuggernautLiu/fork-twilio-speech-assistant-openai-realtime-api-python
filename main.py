@@ -10,12 +10,15 @@ from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
 from openai_constant import OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SESSION_UPDATE_CONFIG, SYSTEM_INSTRUCTIONS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
-import requests
+import requests as http_requests
 from typing import Dict, Any
 import traceback
 from log_utils import setup_logger
 from datetime import datetime
 import httpx
+from google.auth.transport import requests
+from google.oauth2 import id_token
+import google.auth
 
 
 load_dotenv()
@@ -37,8 +40,10 @@ call_records = {}
 # 獲取 webhook URL
 BASE_WEBHOOK_URL = os.getenv('BASE_WEBHOOK_URL', 'http://localhost')
 BASE_WEBHOOK_PORT = os.getenv('BASE_WEBHOOK_PORT', '5051')
-WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-result"
-WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-status"
+#WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-result"
+#WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-status"
+WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}/webhook/call-result"
+WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}/webhook/call-status"
 
 # 驗證設定
 if not all([BASE_WEBHOOK_URL, BASE_WEBHOOK_PORT]):
@@ -355,7 +360,7 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
             **RESPONSE_FORMAT  # Unpack the schema into the message dictionary
         }
         
-        response = requests.post(
+        response = http_requests.post(
             OPENAI_API_URL,
             headers=headers,
             json=payload
@@ -513,6 +518,19 @@ async def handle_call_status(request: Request):
             
     return JSONResponse(content={"status": "success"})
 
+async def get_id_token(target_audience: str) -> str:
+    """Get ID token for Cloud Run authentication"""
+    try:
+        auth_req = requests.Request()
+        credentials, project = google.auth.default()
+        credentials.refresh(auth_req)
+        
+        token = id_token.fetch_id_token(auth_req, target_audience)
+        return token
+    except Exception as e:
+        logger.error(f"Error getting ID token: {str(e)}")
+        raise
+
 async def call_webhook_for_call_result(call_sid: str, result: str, transcript: str):
     try:
         payload = {
@@ -520,17 +538,38 @@ async def call_webhook_for_call_result(call_sid: str, result: str, transcript: s
             "result": result, 
             "transcript": transcript
         }
+        
+        environment = os.getenv('ENV', 'local')
+        logger.info(f"Current environment: {environment}")
         logger.info(f"WEBHOOK_URL_CALL_RESULT: {WEBHOOK_URL_CALL_RESULT}")
         logger.info(f"Calling webhook with payload: {payload}")
-        logger.info(f"async with httpx.AsyncClient() as client:")
+        
+        headers = {}
+        if environment != 'local':
+            try:
+                # 獲取目標服務的 URL（去除協議前綴）
+                target_audience = WEBHOOK_URL_CALL_RESULT.split('://')[-1].split('/')[0]
+                id_token = await get_id_token(f"https://{target_audience}")
+                headers = {"Authorization": f"Bearer {id_token}"}
+                logger.info("Added IAM authentication token")
+            except Exception as e:
+                logger.error(f"Failed to get IAM token: {str(e)}")
+                raise
+        
         async with httpx.AsyncClient() as client:
-            response = await client.post(WEBHOOK_URL_CALL_RESULT, json=payload)
+            response = await client.post(
+                WEBHOOK_URL_CALL_RESULT,
+                json=payload,
+                headers=headers,
+                timeout=30.0  # 增加超時時間
+            )
             logger.info(f"Webhook response: {response.status_code}")
             if response.status_code != 200:
                 logger.error(f"Webhook error: {response.text}")
                 
     except Exception as e:
         logger.error(f"Error calling webhook: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     import uvicorn
