@@ -124,9 +124,12 @@ async def make_outbound_call(request: Request):
 async def serve_twiml(request: Request):
     """Serve TwiML for the outbound call."""
     response = VoiceResponse()
-    response.say("Please wait while we connect your call to the A. I. voice assistant")
-    response.pause(length=1)
-    response.say("Hi Speaking Chinese？")
+    response.say(
+        "您好，我是潮居的語音助理，請稍候",
+        language="zh-TW",
+        voice="shimmer"
+    )
+    response.pause(length=0.7) # for waiting the initiation
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
