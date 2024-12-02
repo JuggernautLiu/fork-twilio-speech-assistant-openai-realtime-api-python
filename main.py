@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
+from constants import GLOBAL_PROJECT_OUTBOUNDCALL_ID
 from openai_constant import OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SESSION_UPDATE_CONFIG, SYSTEM_INSTRUCTIONS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
@@ -19,6 +20,8 @@ import httpx
 from google.auth.transport import requests
 from google.oauth2 import id_token
 import google.auth
+from supabase import create_client, Client
+from contextlib import asynccontextmanager
 
 
 load_dotenv()
@@ -26,7 +29,17 @@ load_dotenv()
 # Configuration
 PORT = int(os.getenv('PORT', 5050))
 LOG_EVENT_TYPES = OpenAIEventTypes.get_all_events()
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时执行
+    await initialize_settings()
+    yield
+    # 关闭时执行
+    # 清理代码（如果需要）
+
+app = FastAPI(lifespan=lifespan)
+
 call_sid = None
 
 if not OPENAI_API_KEY:
@@ -40,10 +53,12 @@ call_records = {}
 # 獲取 webhook URL
 BASE_WEBHOOK_URL = os.getenv('BASE_WEBHOOK_URL', 'http://localhost')
 BASE_WEBHOOK_PORT = os.getenv('BASE_WEBHOOK_PORT', '5051')
-#WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-result"
-#WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-status"
-WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}/webhook/call-result"
-WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}/webhook/call-status"
+if os.getenv('ENV', 'local') == 'local':
+    WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-result"
+    WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}:{BASE_WEBHOOK_PORT}/webhook/call-status"
+else:
+    WEBHOOK_URL_CALL_RESULT = f"{BASE_WEBHOOK_URL}/webhook/call-result"
+    WEBHOOK_URL_CALL_STATUS = f"{BASE_WEBHOOK_URL}/webhook/call-status"
 
 # 驗證設定
 if not all([BASE_WEBHOOK_URL, BASE_WEBHOOK_PORT]):
@@ -54,6 +69,53 @@ logger.info(f"Base webhook URL: {BASE_WEBHOOK_URL}")
 logger.info(f"Base webhook port: {BASE_WEBHOOK_PORT}")
 logger.info(f"Call result webhook URL: {WEBHOOK_URL_CALL_RESULT}")
 logger.info(f"Call status webhook URL: {WEBHOOK_URL_CALL_STATUS}")
+
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
+logger.info(f"supabase_url: {supabase_url}")
+logger.info(f"supabase_key: {supabase_key}")
+supabase: Client = create_client(supabase_url, supabase_key)
+OpenAI_Init_SYSTEM_MESSAGE = ""
+OpenAI_PROJECT_MESSAGE = ""
+
+async def initialize_settings():
+    logger.info("[initialize_settings] >>>")
+    global OpenAI_Init_SYSTEM_MESSAGE
+    global_project_setting = await get_project_settings(GLOBAL_PROJECT_OUTBOUNDCALL_ID)
+    OpenAI_Init_SYSTEM_MESSAGE = global_project_setting.get('project_prompts', '')
+    logger.info("[initialize_settings] <<<")
+
+async def get_project_settings(project_id: int) -> dict:
+    logger.info("[get_project_settings] >>>")
+    try:
+        # 执行查询
+        columns = ['id', 'project_name', 'project_prompts', 'project_custom_json_settings']
+        response = supabase.table('ProjectConfigs') \
+            .select(','.join(columns)) \
+            .eq('id', project_id) \
+            .execute()
+        
+        # 检查是否有结果
+        if not response.data:
+            logger.error(f"未找到项目ID {project_id} 的设置")
+            return {}
+            
+        # 获取第一条记录
+        project_data = response.data[0]
+        
+        # 构建返回的设置对象
+        project_settings = {
+            'project_name': project_data.get('project_name'),
+            'project_prompts': project_data.get('project_prompts'),
+            'project_custom_json_settings': project_data.get('project_custom_json_settings')
+        }
+        
+        logger.info(f"成功获取项目 {project_id} 的设置")
+        return project_settings
+        
+    except Exception as e:
+        logger.error(f"获取项目设置时发生错误: {str(e)}")
+        return {}
 
 @app.get("/", response_class=HTMLResponse)
 async def index_page():
@@ -88,7 +150,12 @@ async def make_outbound_call(request: Request):
         logger.info(f"To Number: {to_number}")
         logger.info(f"Project ID: {project_id}")
         logger.info(f"TwiML: {twiml_url}")
-        
+
+        # Get the Project_Custom_Settings
+        global OpenAI_PROJECT_MESSAGE
+        custom_project_setting = await get_project_settings(project_id)
+        OpenAI_PROJECT_MESSAGE = custom_project_setting.get('project_prompts', '')
+    
         call_sid = make_call(to_number, twiml_url, hostname)
         
         if call_sid:
@@ -323,12 +390,21 @@ async def handle_media_stream(websocket: WebSocket):
 
         await asyncio.gather(receive_from_twilio(), send_to_twilio())
 
+async def get_session_instructions():
+    """組合系統指令"""
+    logger.info("OpenAI_Init_SYSTEM_MESSAGE = "+OpenAI_Init_SYSTEM_MESSAGE)
+    logger.info("OpenAI_PROJECT_MESSAGE = "+OpenAI_PROJECT_MESSAGE)
+    return f"{OpenAI_Init_SYSTEM_MESSAGE}\n{OpenAI_PROJECT_MESSAGE}"
+
 async def send_session_update(openai_ws):
-    """Send session update to OpenAI WebSocket."""
-    # TODO:
-    # Add the custom prompt based on the project_id
-    logger.info('Sending session update: %s', json.dumps(SESSION_UPDATE_CONFIG))
-    await openai_ws.send(json.dumps(SESSION_UPDATE_CONFIG))
+    """更新並發送 session 配置"""
+    # 更新 instructions
+    SESSION_UPDATE_CONFIG["session"]["instructions"] = await get_session_instructions()
+    
+    # 轉換為 JSON 並發送
+    config_json = json.dumps(SESSION_UPDATE_CONFIG)
+    logger.info('Sending session update: %s', config_json)
+    await openai_ws.send(config_json)
 
 async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
     """
@@ -576,4 +652,5 @@ async def call_webhook_for_call_result(call_sid: str, result: str, transcript: s
 
 if __name__ == "__main__":
     import uvicorn
+    #asyncio.run(initialize_settings())  # 初始化設置
     uvicorn.run(app, host="0.0.0.0", port=PORT)

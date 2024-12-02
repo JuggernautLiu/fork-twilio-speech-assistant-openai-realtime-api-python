@@ -84,7 +84,7 @@ SESSION_UPDATE_CONFIG = {
         "input_audio_format": "g711_ulaw",
         "output_audio_format": "g711_ulaw",
         "voice": "shimmer",
-        "instructions": SYSTEM_MESSAGE,
+        "instructions": "",
         "modalities": ["text", "audio"],
         "temperature": 0.6,
         "input_audio_transcription": {
