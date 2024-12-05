@@ -8,14 +8,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from constants import GLOBAL_PROJECT_OUTBOUNDCALL_ID
-from openai_constant import OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SESSION_UPDATE_CONFIG, SYSTEM_INSTRUCTIONS, OpenAIEventTypes, RESPONSE_FORMAT
+from constants import GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
+from openai_constant import DEFAULT_SESSION_CONFIG, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
 from typing import Dict, Any
 import traceback
 from log_utils import setup_logger
-from datetime import datetime
+from datetime import datetime, timedelta
 import httpx
 from google.auth.transport import requests
 from google.oauth2 import id_token
@@ -77,12 +77,51 @@ logger.info(f"supabase_key: {supabase_key}")
 supabase: Client = create_client(supabase_url, supabase_key)
 OpenAI_Init_SYSTEM_MESSAGE = ""
 OpenAI_PROJECT_MESSAGE = ""
+SESSION_UPDATE_CONFIG = DEFAULT_SESSION_CONFIG.copy()
+twilio_voice_settings = TWILIO_VOICE_SETTINGS.copy()
+waittime_before_call_function_call_closethecall = WAITTIME_BEFORE_CALL_function_call_closethecall
+
+# 全局變量來存儲令牌和過期時間
+cached_id_token = None
+token_expiry = None
+
+async def get_cached_id_token(target_audience):
+    global cached_id_token, token_expiry
+    # 如果令牌不存在或已過期，重新獲取
+    if not cached_id_token or datetime.now() >= token_expiry:
+        cached_id_token = await get_id_token(f"https://{target_audience}")
+        # 假設令牌有效期為 1 小時
+        token_expiry = datetime.now() + timedelta(hours=1)
+    return cached_id_token
 
 async def initialize_settings():
     logger.info("[initialize_settings] >>>")
     global OpenAI_Init_SYSTEM_MESSAGE
+    global SESSION_UPDATE_CONFIG
+    global twilio_voice_settings
+    global waittime_before_call_function_call_closethecall
+    # 獲取項目設置
     global_project_setting = await get_project_settings(GLOBAL_PROJECT_OUTBOUNDCALL_ID)
+    logger.info(f"Global project settings: {json.dumps(global_project_setting, indent=2, ensure_ascii=False)}")
+    
     OpenAI_Init_SYSTEM_MESSAGE = global_project_setting.get('project_prompts', '')
+    logger.info(f"OpenAI Init System Message: {OpenAI_Init_SYSTEM_MESSAGE}")
+    
+    global_project_custom_json_settings = global_project_setting.get('project_custom_json_settings') or {}
+    logger.info(f"Global project custom JSON settings: {json.dumps(global_project_custom_json_settings, indent=2, ensure_ascii=False)}")
+    
+    twilio_voice_settings = (global_project_custom_json_settings or {}).get('TWILIO_VOICE_SETTINGS', TWILIO_VOICE_SETTINGS)
+    logger.info(f"Twilio voice settings: {json.dumps(twilio_voice_settings, indent=2, ensure_ascii=False)}")
+    
+    waittime_before_call_function_call_closethecall = (global_project_custom_json_settings or {}).get('WAITTIME_BEFORE_CALL_function_call_closethecall', WAITTIME_BEFORE_CALL_function_call_closethecall)
+    logger.info(f"Wait time before call function close: {waittime_before_call_function_call_closethecall}")
+    
+    # 獲取 OpenAI session 更新配置
+    global_openai_session_update_config = await get_project_settings(GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID)
+    logger.info(f"Global OpenAI session update config: {json.dumps(global_openai_session_update_config, indent=2, ensure_ascii=False)}")
+    
+    SESSION_UPDATE_CONFIG = global_openai_session_update_config.get('project_custom_json_settings', '')
+    logger.info(f"Session update config: {json.dumps(SESSION_UPDATE_CONFIG, indent=2, ensure_ascii=False)}")
     logger.info("[initialize_settings] <<<")
 
 async def get_project_settings(project_id: int) -> dict:
@@ -191,12 +230,12 @@ async def make_outbound_call(request: Request):
 async def serve_twiml(request: Request):
     """Serve TwiML for the outbound call."""
     response = VoiceResponse()
-    #response.say(
-    #    "您好，我是潮居的語音助理，請稍候",
-    #    language="zh-TW",
-    #    voice="shimmer"
-    #)
-    #response.pause(length=0.7) # for waiting the initiation
+    response.say(
+        twilio_voice_settings["WELCOME_MESSAGE"],
+        language=twilio_voice_settings["LANGUAGE"],
+        voice=twilio_voice_settings["VOICE"]
+    )
+    response.pause(length=0.5) # for waiting the initiation
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
@@ -225,6 +264,7 @@ async def handle_media_stream(websocket: WebSocket):
     # Initialize stream_sid, call_sid
     stream_sid = None
     call_sid = None
+    pending_close_call = False
     
     # Initialize user transcriptions for this session
     all_transcript = ""
@@ -285,7 +325,7 @@ async def handle_media_stream(websocket: WebSocket):
 
         async def send_to_twilio():
             """Receive events from the OpenAI Realtime API, send audio back to Twilio."""
-            nonlocal stream_sid, call_sid, all_transcript
+            nonlocal stream_sid, call_sid, all_transcript,pending_close_call
             try:
                 async for openai_message in openai_ws:
                     response = json.loads(openai_message)
@@ -339,6 +379,12 @@ async def handle_media_stream(websocket: WebSocket):
                                 agent_message = 'Agent message not found'
 
                             logger.info(f"Agent: {agent_message}")
+                            if pending_close_call:
+                                logger.info(f"Executing delayed close call function for call_sid: {call_sid}")
+                                await asyncio.sleep(waittime_before_call_function_call_closethecall)  # 給足夠時間播放最後的回應
+                                await function_call_closethecall(call_sid, "completed")
+                                pending_close_call = False
+
                         case OpenAIEventTypes.CONNECTION_CLOSED:
                             logger.info("OpenAI session closed")
                             await openai_ws.close()
@@ -374,8 +420,11 @@ async def handle_media_stream(websocket: WebSocket):
                                 if function_name == 'function_call_closethecall':
                                     logger.info(f"Executing close call function for call_sid: {call_sid}")
                                     if call_sid:
-                                        await asyncio.sleep(2)
-                                        await function_call_closethecall(call_sid, "completed")
+                                        #await asyncio.sleep(2)
+                                        #await function_call_closethecall(call_sid, "completed")
+                                        # 暫存結束信號，等待 RESPONSE_DONE 後再執行
+                                        pending_close_call = True
+                                        logger.info(f"Set global pending_close_call = {pending_close_call}")
                                     else:
                                         logger.error("No call_sid available for closing the call")
                         # case _:
@@ -399,8 +448,8 @@ async def get_session_instructions():
 async def send_session_update(openai_ws):
     """更新並發送 session 配置"""
     # 更新 instructions
+    #SESSION_UPDATE_CONFIG["session"]["instructions"] = SYSTEM_MESSAGE
     SESSION_UPDATE_CONFIG["session"]["instructions"] = await get_session_instructions()
-    
     # 轉換為 JSON 並發送
     config_json = json.dumps(SESSION_UPDATE_CONFIG)
     logger.info('Sending session update: %s', config_json)
@@ -586,8 +635,27 @@ async def handle_call_status(request: Request):
             logger.info(f"WEBHOOK_URL_CALL_STATUS: {WEBHOOK_URL_CALL_STATUS}")
             logger.info(f"Calling webhook with payload: {payload}")
             logger.info(f"async with httpx.AsyncClient() as client:")
+
+            headers = {}
+            environment = os.getenv('ENV', 'local')
+            logger.info(f"Current environment: {environment}")
+            if environment != 'local':
+                try:
+                    target_audience = WEBHOOK_URL_CALL_STATUS.split('://')[-1].split('/')[0]
+                    id_token = await get_cached_id_token(target_audience)
+                    headers = {"Authorization": f"Bearer {id_token}"}
+                    logger.info("Added IAM authentication token")
+                except Exception as e:
+                    logger.error(f"Failed to get IAM token: {str(e)}")
+                    raise
+
             async with httpx.AsyncClient() as client:
-                response = await client.post(WEBHOOK_URL_CALL_STATUS, json=payload)
+                response = await client.post(
+                    WEBHOOK_URL_CALL_STATUS,
+                    json=payload,
+                    headers=headers,
+                    timeout=30.0  # 增加超時時間
+                )
                 logger.info(f"Webhook response: {response.status_code}")
                 if response.status_code != 200:
                     logger.error(f"Webhook error: {response.text}")
@@ -628,7 +696,7 @@ async def call_webhook_for_call_result(call_sid: str, result: str, transcript: s
             try:
                 # 獲取目標服務的 URL（去除協議前綴）
                 target_audience = WEBHOOK_URL_CALL_RESULT.split('://')[-1].split('/')[0]
-                id_token = await get_id_token(f"https://{target_audience}")
+                id_token = await get_cached_id_token(target_audience)
                 headers = {"Authorization": f"Bearer {id_token}"}
                 logger.info("Added IAM authentication token")
             except Exception as e:

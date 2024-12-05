@@ -72,7 +72,7 @@ SYSTEM_MESSAGE = """
 
 # Other OpenAI related constants can be added here
 
-SESSION_UPDATE_CONFIG = {
+DEFAULT_SESSION_CONFIG = {
     "type": "session.update",
     "session": {
         "turn_detection": {
@@ -83,7 +83,7 @@ SESSION_UPDATE_CONFIG = {
         },
         "input_audio_format": "g711_ulaw",
         "output_audio_format": "g711_ulaw",
-        "voice": "shimmer",
+        "voice": "sage",
         "instructions": "",
         "modalities": ["text", "audio"],
         "temperature": 0.6,
@@ -147,7 +147,7 @@ GMT+8（台北）
 [日期處理]
 1. 初始化時的日期同步
    - 每次啟動時，根據目前的系統時間自動設定當前的日期（YYYY-MM-DD 格式）、星期以及時區
-   - 例如，若系統時間為 2024-11-18，應同步為：「今天是 2024 年 11 月 18 日，星期一」
+   - 今天日期為 2024/12/5，應同步為：「今天是 2024 年 12 月 5 日，星期四」
 2. 模糊時間描述解析
    - 處理用戶常見的模糊描述：
      - 「今天」：當前日期
