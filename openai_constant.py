@@ -137,7 +137,6 @@ class OpenAIEventTypes(str, Enum):
 # Pre-defined list of all events for easy import
 ALL_EVENTS = OpenAIEventTypes.get_all_events()
 
-
 #SYSTEM_INSTRUCTIONS = "如果對話者有意願預約，與對話者確認完整的預約資訊，包括日期、時間、星期幾，例如：「2024年10月20日星期日」，確保資料無誤，記錄預約日期時間。確認對話者總共來訪人數，並記錄來訪人數，result 記錄為 “RSVPbooked”。如果對話者希望由真人來電，result 記錄為 “humanRequested”，如果對話者目前沒有空，也有提供下次通話時間，result 記錄為 “callNeeded”，記錄時間在callnexttime 。如果對話者表示沒意願，不想預約，result 記錄為 “userRejected”。如果對話者表示打錯電話，result 記錄為 “invalidRecipient”。"
 # System instructions for handling real estate viewing appointments
 # Timezone: GMT+8 (Taipei)
@@ -242,3 +241,12 @@ SYSTEM_MESSAGE = (
     "對話者表示希望由真人回撥\n"
 )
 '''
+
+# chat/completions Settings
+GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS = {
+    "temperature": 0.6,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "response_format": RESPONSE_FORMAT
+}

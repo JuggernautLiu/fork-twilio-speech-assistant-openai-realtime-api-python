@@ -8,8 +8,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from constants import GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
-from openai_constant import DEFAULT_SESSION_CONFIG, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, OpenAIEventTypes, RESPONSE_FORMAT
+from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
+from openai_constant import DEFAULT_SESSION_CONFIG, GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
 from typing import Dict, Any
@@ -80,6 +80,9 @@ OpenAI_PROJECT_MESSAGE = ""
 SESSION_UPDATE_CONFIG = DEFAULT_SESSION_CONFIG.copy()
 twilio_voice_settings = TWILIO_VOICE_SETTINGS.copy()
 waittime_before_call_function_call_closethecall = WAITTIME_BEFORE_CALL_function_call_closethecall
+chat_completions_system_instructions = SYSTEM_INSTRUCTIONS
+chat_completions_settings = GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS.copy()
+
 
 # 全局變量來存儲令牌和過期時間
 cached_id_token = None
@@ -100,6 +103,9 @@ async def initialize_settings():
     global SESSION_UPDATE_CONFIG
     global twilio_voice_settings
     global waittime_before_call_function_call_closethecall
+    global chat_completions_system_instructions
+    global chat_completions_settings
+
     # 獲取項目設置
     global_project_setting = await get_project_settings(GLOBAL_PROJECT_OUTBOUNDCALL_ID)
     logger.info(f"Global project settings: {json.dumps(global_project_setting, indent=2, ensure_ascii=False)}")
@@ -116,12 +122,21 @@ async def initialize_settings():
     waittime_before_call_function_call_closethecall = (global_project_custom_json_settings or {}).get('WAITTIME_BEFORE_CALL_function_call_closethecall', WAITTIME_BEFORE_CALL_function_call_closethecall)
     logger.info(f"Wait time before call function close: {waittime_before_call_function_call_closethecall}")
     
-    # 獲取 OpenAI session 更新配置
+    # Get OpenAI session update config
     global_openai_session_update_config = await get_project_settings(GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID)
     logger.info(f"Global OpenAI session update config: {json.dumps(global_openai_session_update_config, indent=2, ensure_ascii=False)}")
     
     SESSION_UPDATE_CONFIG = global_openai_session_update_config.get('project_custom_json_settings', '')
     logger.info(f"Session update config: {json.dumps(SESSION_UPDATE_CONFIG, indent=2, ensure_ascii=False)}")
+
+    # Get OpenAI chat completions settings
+    global_openai_chat_completions_settings = await get_project_settings(GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID)
+    chat_completions_settings = global_openai_chat_completions_settings.get('project_custom_json_settings', '')
+    logger.info(f"Global OpenAI chat completions settings: {json.dumps(chat_completions_settings, indent=2, ensure_ascii=False)}")
+    
+    chat_completions_system_instructions = global_openai_chat_completions_settings.get('project_prompts', '')
+    logger.info(f"Chat completions system instructions: {chat_completions_system_instructions}")
+
     logger.info("[initialize_settings] <<<")
 
 async def get_project_settings(project_id: int) -> dict:
@@ -478,14 +493,15 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
             "messages": [
                 {
                     "role": "system", 
-                    "content": SYSTEM_INSTRUCTIONS
+                    "content": chat_completions_system_instructions
                 },
                 {
                     "role": "user",
                     "content": transcript
                 }
             ],
-            **RESPONSE_FORMAT  # Unpack the schema into the message dictionary
+            #**RESPONSE_FORMAT  # Unpack the schema into the message dictionary
+            **chat_completions_settings.get("response_format", {})  # using .get() to avoid KeyError if 'response_format' is missing
         }
         
         response = http_requests.post(
