@@ -27,7 +27,8 @@ else:
 TWILIO_VOICE_SETTINGS = {
     "WELCOME_MESSAGE": "唯 你好",
     "LANGUAGE": "zh-TW",
-    "VOICE": "Alice - redirected"
+    "VOICE": "Alice - redirected",
+    "INIT_PAUSE_LENGTH_SEC": 0.5
 }
 
 WAITTIME_BEFORE_CALL_function_call_closethecall = 10

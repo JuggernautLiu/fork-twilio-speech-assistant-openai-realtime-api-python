@@ -250,7 +250,7 @@ async def serve_twiml(request: Request):
         language=twilio_voice_settings["LANGUAGE"],
         voice=twilio_voice_settings["VOICE"]
     )
-    response.pause(length=0.5) # for waiting the initiation
+    response.pause(length=twilio_voice_settings["INIT_PAUSE_LENGTH_SEC"])
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
