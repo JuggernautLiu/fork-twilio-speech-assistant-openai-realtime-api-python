@@ -9,7 +9,7 @@ from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
 from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
-from openai_constant import DEFAULT_SESSION_CONFIG, GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, OpenAIEventTypes, RESPONSE_FORMAT
+from openai_constant import DEFAULT_SESSION_CONFIG, GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, WHAT_DATE_IS_TODAY_PROMPTS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
 from typing import Dict, Any
@@ -458,7 +458,8 @@ async def get_session_instructions():
     """組合系統指令"""
     logger.info("OpenAI_Init_SYSTEM_MESSAGE = "+OpenAI_Init_SYSTEM_MESSAGE)
     logger.info("OpenAI_PROJECT_MESSAGE = "+OpenAI_PROJECT_MESSAGE)
-    return f"{OpenAI_Init_SYSTEM_MESSAGE}\n{OpenAI_PROJECT_MESSAGE}"
+    logger.info("WHAT_DATE_IS_TODAY_PROMPTS = "+WHAT_DATE_IS_TODAY_PROMPTS)
+    return f"{OpenAI_Init_SYSTEM_MESSAGE}\n{OpenAI_PROJECT_MESSAGE}\n{WHAT_DATE_IS_TODAY_PROMPTS}"
 
 async def send_session_update(openai_ws):
     """更新並發送 session 配置"""
@@ -489,11 +490,11 @@ async def make_chat_gpt_completion(transcript: str) -> Dict[Any, Any]:
         }
         
         payload = {
-            "model": OPENAI_MODEL,  # Using latest available model
+            "model": OPENAI_MODEL,
             "messages": [
                 {
                     "role": "system", 
-                    "content": chat_completions_system_instructions
+                    "content": f"{chat_completions_system_instructions}\n{WHAT_DATE_IS_TODAY_PROMPTS}"
                 },
                 {
                     "role": "user",

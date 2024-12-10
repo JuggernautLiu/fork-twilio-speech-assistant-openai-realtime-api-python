@@ -1,6 +1,9 @@
 import os
 from dotenv import load_dotenv
 from enum import Enum
+from datetime import datetime
+import pytz
+from utils import get_today_formatted_string
 
 # Load environment variables from .env file
 load_dotenv()
@@ -250,3 +253,6 @@ GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS = {
     "presence_penalty": 0,
     "response_format": RESPONSE_FORMAT
 }
+
+# Get current date message
+WHAT_DATE_IS_TODAY_PROMPTS = f"[今日日期]\n{get_today_formatted_string()}"
