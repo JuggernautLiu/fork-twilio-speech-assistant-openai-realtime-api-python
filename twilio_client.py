@@ -2,6 +2,7 @@ from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import os
 from dotenv import load_dotenv
+from constants import TWILIO_CALLBACK_EVENT_STATUS, TWILIO_VOICE_SETTINGS
 from log_utils import setup_logger
 
 # Load environment variables
@@ -18,13 +19,13 @@ twilio_phone_number = os.getenv('TWILIO_PHONE_NUMBER')
 # Create Twilio client
 client = Client(account_sid, auth_token)
 
-def make_call(to_number: str, twiml_url: str, hostname: str, from_number: str = None):
+def make_call(to_number: str, twiml_url: str, hostname: str, twilio_voice_settings: dict = None):
     """
     Initiate a call using Twilio API
     :param to_number: The phone number to call
     :param twiml_url: URL for TwiML instructions
     :param hostname: The hostname for callback URL
-    :param from_number: The phone number to use for the call (optional)
+    :param twilio_voice_settings: Voice settings dictionary
     :return: Call SID if successful, None otherwise
     """
     # Log all input parameters
@@ -33,16 +34,20 @@ def make_call(to_number: str, twiml_url: str, hostname: str, from_number: str = 
     logger.info(f"TwiML URL: {twiml_url}")
     logger.info(f"From Number: {twilio_phone_number}")
     logger.info(f"Host Name: {hostname}")
+    logger.info(f"Twilio Voice Settings: {twilio_voice_settings}")
 
     try:
         call = client.calls.create(
             to=to_number,
-            from_=from_number or twilio_phone_number, 
+            from_=twilio_phone_number,
             url=twiml_url,
             status_callback=f"https://{hostname}/call-status",
-            status_callback_event=["initiated", "ringing", "answered", "completed"],
+            status_callback_event=TWILIO_CALLBACK_EVENT_STATUS,
             status_callback_method="POST",
-            timeout=10 # 10 seconds + around 5 seconds buffer
+            timeout=twilio_voice_settings.get('CALL_TIMEOUT_SEC', TWILIO_VOICE_SETTINGS['CALL_TIMEOUT_SEC']),
+            time_limit=twilio_voice_settings.get('CALL_TIME_LIMIT_SEC', TWILIO_VOICE_SETTINGS['CALL_TIME_LIMIT_SEC']),
+            machine_detection=twilio_voice_settings.get('CALL_MACHINE_DETECTION', TWILIO_VOICE_SETTINGS['CALL_MACHINE_DETECTION']),
+            record=twilio_voice_settings.get('CALL_RECORD', TWILIO_VOICE_SETTINGS['CALL_RECORD']),
         )
         logger.info(f"Call initiated. Call SID: {call.sid}")
         return call.sid

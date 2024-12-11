@@ -28,9 +28,30 @@ TWILIO_VOICE_SETTINGS = {
     "WELCOME_MESSAGE": "唯 你好",
     "LANGUAGE": "zh-TW",
     "VOICE": "Alice - redirected",
-    "INIT_PAUSE_LENGTH_SEC": 0.5
+    "INIT_PAUSE_LENGTH_SEC": 0.5,
+    "CALL_TIMEOUT_SEC": 30,
+    "CALL_TIME_LIMIT_SEC": 300,
+    "CALL_MACHINE_DETECTION": "Enable",
+    "CALL_RECORD": "False", # TODO: for the future recording requirements
 }
+TWILIO_CALLBACK_EVENT_STATUS = [
+    "initiated",   # The call has been created and is ready to be initiated
+    "ringing",     # The call is currently ringing at the destination
+    "answered",    # The call was answered by the recipient
+    "completed",   # The call has completed successfully
+    "busy",        # The recipient's line was busy
+    "no-answer",   # The recipient did not answer the call
+    "failed",      # The call could not be completed as dialed
+    "canceled"     # The call was canceled before it was answered
+]
+TWILIO_STATUS_ANSWEREDBY = [
+    "human",        # Call answered by a human
+    "machine",      # Call answered by an answering machine
+    "fax",          # Call answered by a fax machine
+    "unknown"       # Unable to determine what answered the call
+]
 
 WAITTIME_BEFORE_CALL_function_call_closethecall = 10
+DEFAULT_COUNTRY_CODE = "+886"
 
 

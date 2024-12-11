@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
+from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_STATUS_ANSWEREDBY, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
 from openai_constant import DEFAULT_SESSION_CONFIG, GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, WHAT_DATE_IS_TODAY_PROMPTS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
@@ -22,6 +22,7 @@ from google.oauth2 import id_token
 import google.auth
 from supabase import create_client, Client
 from contextlib import asynccontextmanager
+from utils import format_phone_number_with_country_code
 
 
 load_dotenv()
@@ -197,6 +198,17 @@ async def make_outbound_call(request: Request):
                 content={"message": "Missing required parameter: project_id"}, 
                 status_code=400
             )
+            
+        try:
+            # Formatted country code to_number
+            logger.info("Original to_number = "+to_number)
+            to_number = format_phone_number_with_country_code(to_number)
+            logger.info("Formatted country code to_number = "+to_number)
+        except ValueError as e:
+            return JSONResponse(
+                content={"message": str(e)},
+                status_code=400
+            )
         
         hostname = request.url.hostname
         twiml_url = f"https://{hostname}/twiml"
@@ -210,7 +222,7 @@ async def make_outbound_call(request: Request):
         custom_project_setting = await get_project_settings(project_id)
         OpenAI_PROJECT_MESSAGE = custom_project_setting.get('project_prompts', '')
     
-        call_sid = make_call(to_number, twiml_url, hostname)
+        call_sid = make_call(to_number, twiml_url, hostname, twilio_voice_settings)
         
         if call_sid:
             # Initialize call record
@@ -219,7 +231,7 @@ async def make_outbound_call(request: Request):
                 "project_id": project_id,
                 "transcript": [],  # Store transcription content
                 "parsed_content": {},  # Store parsed results
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now().isoformat() #TODO: formatted to UTC+8
             }
             
             logger.info(f"Current records: {call_records}")
@@ -622,6 +634,23 @@ async def handle_call_status(request: Request):
         logger.info(f"Call {call_sid} is ringing")
     elif call_status == "answered":
         logger.info(f"Call {call_sid} was answered")
+        answered_by = form_data.get("AnsweredBy", "unknown")
+        logger.info(f"Call answered by: {answered_by}")
+        
+        # Handle different cases based on answered_by value
+        if answered_by == TWILIO_STATUS_ANSWEREDBY["human"]:
+            logger.info("Call answered by a human.")
+            # Add specific logic for human answer here
+        elif answered_by == TWILIO_STATUS_ANSWEREDBY["machine"]:
+            logger.info("Call answered by a voicemail.")
+            call_status = "no-answer"
+            bool_should_call_webhook = True
+        elif answered_by == TWILIO_STATUS_ANSWEREDBY["fax"]:
+            logger.info("Call answered by a fax.")
+            call_status = "failed"
+            bool_should_call_webhook = True
+        else:
+            logger.info(f"Call answered with unknown type: {answered_by}")
     elif call_status == "completed":
         logger.info(f"Call {call_sid} has completed")
         logger.info(f'CallDuration: {form_data.get("CallDuration")}')
