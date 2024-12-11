@@ -47,6 +47,7 @@ def make_call(to_number: str, twiml_url: str, hostname: str, twilio_voice_settin
             timeout=twilio_voice_settings.get('CALL_TIMEOUT_SEC', TWILIO_VOICE_SETTINGS['CALL_TIMEOUT_SEC']),
             time_limit=twilio_voice_settings.get('CALL_TIME_LIMIT_SEC', TWILIO_VOICE_SETTINGS['CALL_TIME_LIMIT_SEC']),
             machine_detection=twilio_voice_settings.get('CALL_MACHINE_DETECTION', TWILIO_VOICE_SETTINGS['CALL_MACHINE_DETECTION']),
+            machine_detection_timeout=3, #TODO hard code for now
             record=twilio_voice_settings.get('CALL_RECORD', TWILIO_VOICE_SETTINGS['CALL_RECORD']),
         )
         logger.info(f"Call initiated. Call SID: {call.sid}")
