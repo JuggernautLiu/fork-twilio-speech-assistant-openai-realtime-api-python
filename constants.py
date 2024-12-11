@@ -53,5 +53,6 @@ TWILIO_STATUS_ANSWEREDBY = [
 
 WAITTIME_BEFORE_CALL_function_call_closethecall = 10
 DEFAULT_COUNTRY_CODE = "+886"
+DEFAULT_TIMEZONE = 'Asia/Taipei'
 
 

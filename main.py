@@ -8,14 +8,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_STATUS_ANSWEREDBY, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall
+from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_STATUS_ANSWEREDBY, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall, DEFAULT_TIMEZONE
 from openai_constant import DEFAULT_SESSION_CONFIG, GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, WHAT_DATE_IS_TODAY_PROMPTS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
 from typing import Dict, Any
 import traceback
 from log_utils import setup_logger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import httpx
 from google.auth.transport import requests
 from google.oauth2 import id_token
@@ -23,6 +23,7 @@ import google.auth
 from supabase import create_client, Client
 from contextlib import asynccontextmanager
 from utils import format_phone_number_with_country_code
+import pytz
 
 
 load_dotenv()
@@ -30,6 +31,8 @@ load_dotenv()
 # Configuration
 PORT = int(os.getenv('PORT', 5050))
 LOG_EVENT_TYPES = OpenAIEventTypes.get_all_events()
+
+TIMEZONE = pytz.timezone(DEFAULT_TIMEZONE)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -231,7 +234,7 @@ async def make_outbound_call(request: Request):
                 "project_id": project_id,
                 "transcript": [],  # Store transcription content
                 "parsed_content": {},  # Store parsed results
-                "created_at": datetime.now().isoformat() #TODO: formatted to UTC+8
+                "created_at": datetime.now(TIMEZONE).isoformat()  # 添加时区信息
             }
             
             logger.info(f"Current records: {call_records}")
@@ -660,7 +663,7 @@ async def handle_call_status(request: Request):
             "call_sid": call_sid,
             "result": "in-progress-noPickup",
             "status": call_status,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(TIMEZONE).isoformat(),
             "to_number": form_data.get("To"),
             "from_number": form_data.get("From"),
             "retry_count": 1
@@ -672,7 +675,7 @@ async def handle_call_status(request: Request):
     
     if bool_should_call_webhook:
         try:
-            timestamp = datetime.now().isoformat()
+            timestamp = datetime.now(TIMEZONE).isoformat()
             payload = {
                 "call_id": call_sid,
                 "status": call_status, 
