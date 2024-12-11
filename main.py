@@ -233,13 +233,11 @@ async def make_outbound_call(request: Request):
                 "to_number": to_number,
                 "project_id": project_id,
                 "transcript": [],  # Store transcription content
-                "parsed_content": {},  # Store parsed results
-                "created_at": datetime.now(TIMEZONE).isoformat()  # 添加时区信息
+                "parsed_content": {}  # Store parsed results
             }
             
             logger.info(f"Current records: {call_records}")
             return JSONResponse(content={
-                #"message": f"Call initiated successfully. Call SID: {call_sid}",
                 "message": f"Call initiated successfully.",
                 "call_sid": call_sid
             })
