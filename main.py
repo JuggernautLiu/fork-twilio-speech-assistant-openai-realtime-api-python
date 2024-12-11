@@ -76,8 +76,6 @@ logger.info(f"Call status webhook URL: {WEBHOOK_URL_CALL_STATUS}")
 
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY")
-logger.info(f"supabase_url: {supabase_url}")
-logger.info(f"supabase_key: {supabase_key}")
 supabase: Client = create_client(supabase_url, supabase_key)
 OpenAI_Init_SYSTEM_MESSAGE = ""
 OpenAI_PROJECT_MESSAGE = ""
