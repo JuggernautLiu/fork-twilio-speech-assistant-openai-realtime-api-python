@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
-from constants import GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_STATUS_ANSWEREDBY, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall, DEFAULT_TIMEZONE
+from constants import GLOBAL_PROJECT_ID, GLOBAL_PROJECT_OPENAI_CHAT_COMPLETIONS_CONFIG_ID, GLOBAL_PROJECT_OPENAI_SESSION_UPDATE_CONFIG_ID, GLOBAL_PROJECT_OUTBOUNDCALL_ID, TWILIO_STATUS_ANSWEREDBY, TWILIO_VOICE_SETTINGS, WAITTIME_BEFORE_CALL_function_call_closethecall, DEFAULT_TIMEZONE
 from openai_constant import DEFAULT_SESSION_CONFIG, GLOBAL_OPENAI_API_CHAT_COMPLETIONS_SETTINGS, OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, OPENAI_MODEL_REALTIME, OPENAI_API_URL_REALTIME, SYSTEM_INSTRUCTIONS, SYSTEM_MESSAGE, WHAT_DATE_IS_TODAY_PROMPTS, OpenAIEventTypes, RESPONSE_FORMAT
 from twilio_client import make_call, generate_twiml, close_call_by_agent
 import requests as http_requests
@@ -109,7 +109,7 @@ async def initialize_settings():
     global chat_completions_settings
 
     # 獲取項目設置
-    global_project_setting = await get_project_settings(GLOBAL_PROJECT_OUTBOUNDCALL_ID)
+    global_project_setting = await get_project_settings(GLOBAL_PROJECT_ID)
     logger.info(f"Global project settings: {json.dumps(global_project_setting, indent=2, ensure_ascii=False)}")
     
     OpenAI_Init_SYSTEM_MESSAGE = global_project_setting.get('project_prompts', '')
@@ -271,15 +271,44 @@ async def serve_twiml(request: Request):
 @app.api_route("/incoming-call", methods=["GET", "POST"])
 async def handle_incoming_call(request: Request):
     """Handle incoming call and return TwiML response to connect to Media Stream."""
-    response = VoiceResponse()
-    response.say("Please wait while we connect your call to the A. I. voice assistant")
-    response.pause(length=1)
-    response.say("Hi Speaking Chinese？")
-    host = request.url.hostname
-    connect = Connect()
-    connect.stream(url=f'wss://{host}/media-stream')
-    response.append(connect)
-    return HTMLResponse(content=str(response), media_type="application/xml")
+    try:
+        # 获取表单数据
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        from_number = form_data.get("From")
+        
+        logger.info(f"Incoming call - CallSid: {call_sid}, From: {from_number}")
+        
+        # 初始化通话记录
+        if call_sid:
+            call_records[call_sid] = {
+                "from_number": from_number,
+                "transcript": [],
+                "parsed_content": {}
+            }
+            logger.info(f"Initialized call record for CallSid: {call_sid}")
+        
+        # 生成 TwiML 响应
+        response = VoiceResponse()
+        response.say(
+            twilio_voice_settings["WELCOME_MESSAGE"],
+            language=twilio_voice_settings["LANGUAGE"],
+            voice=twilio_voice_settings["VOICE"]
+        )
+        response.pause(length=twilio_voice_settings["INIT_PAUSE_LENGTH_SEC"])
+        host = request.url.hostname
+        connect = Connect()
+        connect.stream(url=f'wss://{host}/media-stream')
+        response.append(connect)
+        
+        return HTMLResponse(content=str(response), media_type="application/xml")
+        
+    except Exception as e:
+        logger.error(f"Error handling incoming call: {str(e)}")
+        # 返回一个基本的错误响应
+        error_response = VoiceResponse()
+        error_response.say("抱歉，发生了一个错误。", language="zh-CN")
+        return HTMLResponse(content=str(error_response), media_type="application/xml")
 
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
