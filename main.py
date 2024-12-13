@@ -305,9 +305,8 @@ async def handle_incoming_call(request: Request):
         
     except Exception as e:
         logger.error(f"Error handling incoming call: {str(e)}")
-        # 返回一个基本的错误响应
         error_response = VoiceResponse()
-        error_response.say("抱歉，发生了一个错误。", language="zh-CN")
+        error_response.say("抱歉，目前系統正忙，請稍後再試。", language="zh-TW")
         return HTMLResponse(content=str(error_response), media_type="application/xml")
 
 @app.websocket("/media-stream")
